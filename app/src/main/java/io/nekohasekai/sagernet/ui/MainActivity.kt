@@ -58,6 +58,8 @@ class MainActivity : ThemedActivity(),
 
     lateinit var binding: LayoutMainBinding
     lateinit var navigation: NavigationView
+    private var defaultLatencyTestRunning = false
+    private var defaultLatencyTestedProfile = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -361,6 +363,30 @@ class MainActivity : ThemedActivity(),
         binding.fab.changeState(state, DataStore.serviceState, animate)
         binding.stats.changeState(state)
         if (msg != null) snackbar(getString(R.string.vpn_error, msg)).show()
+        if (state == BaseService.State.Connected) {
+            testDefaultProxyLatencyOnce()
+        } else if (!state.connected) {
+            defaultLatencyTestRunning = false
+            defaultLatencyTestedProfile = 0L
+        }
+    }
+
+    private fun testDefaultProxyLatencyOnce() {
+        val profileId = DataStore.selectedProxy
+        if (profileId <= 0L || defaultLatencyTestRunning || defaultLatencyTestedProfile == profileId) {
+            return
+        }
+        defaultLatencyTestRunning = true
+        defaultLatencyTestedProfile = profileId
+        runOnDefaultDispatcher {
+            try {
+                PrivateSubscriptionManager.testDefaultProxyLatency(profileId)
+            } finally {
+                onMainDispatcher {
+                    defaultLatencyTestRunning = false
+                }
+            }
+        }
     }
 
     override fun snackbarInternal(text: CharSequence): Snackbar {

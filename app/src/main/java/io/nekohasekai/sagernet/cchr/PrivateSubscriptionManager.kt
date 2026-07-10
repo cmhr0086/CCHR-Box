@@ -9,7 +9,11 @@ import io.nekohasekai.sagernet.CCHR_DEFAULT_SUBSCRIPTION_NAME
 import io.nekohasekai.sagernet.CCHR_SUBSCRIPTION_ENDPOINT
 import io.nekohasekai.sagernet.GroupType
 import io.nekohasekai.sagernet.R
+import io.nekohasekai.sagernet.bg.proto.UrlTest
+import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.GroupManager
+import io.nekohasekai.sagernet.database.ProfileManager
+import io.nekohasekai.sagernet.database.ProxyEntity
 import io.nekohasekai.sagernet.database.ProxyGroup
 import io.nekohasekai.sagernet.database.SagerDatabase
 import io.nekohasekai.sagernet.database.SubscriptionBean
@@ -67,7 +71,7 @@ object PrivateSubscriptionManager {
             val inviteCode = requestInviteCode(activity) ?: return false
             activateWithInviteCode(activity, inviteCode)
         } else {
-            refreshDefaultSubscription(activity, showError = true)
+            ensureDefaultSubscriptionConnectable(activity, group)
         }
     }
 
@@ -96,6 +100,7 @@ object PrivateSubscriptionManager {
                 activity.snackbar(R.string.cchr_subscription_update_failed).show()
             }
         }
+        ensureDefaultProxySelected(updatedGroup)
         return ok
     }
 
@@ -118,7 +123,78 @@ object PrivateSubscriptionManager {
             },
         )
         GroupManager.createGroup(group)
-        return refreshDefaultSubscription(activity, showError = true)
+        return refreshDefaultSubscription(activity, showError = true) &&
+                ensureDefaultProxyAvailable(activity, allowRefresh = false)
+    }
+
+    suspend fun testDefaultProxyLatency(profileId: Long) {
+        val group = getDefaultSubscription() ?: return
+        val profile = SagerDatabase.proxyDao.getById(profileId) ?: return
+        if (profile.groupId != group.id) return
+
+        try {
+            profile.status = 1
+            profile.ping = UrlTest().doTest(profile)
+            profile.error = null
+        } catch (e: Throwable) {
+            profile.status = 3
+            profile.ping = 0
+            profile.error = e.readableMessage
+        }
+        SagerDatabase.proxyDao.updateProxy(profile)
+        ProfileManager.postUpdate(profile.id, true)
+        GroupManager.postUpdate(group.id)
+    }
+
+    private suspend fun ensureDefaultSubscriptionConnectable(
+        activity: MainActivity,
+        group: ProxyGroup,
+    ): Boolean {
+        val invalidReason = validateDefaultSubscription(group)
+        if (invalidReason != null) {
+            showInvalidDialog(activity, invalidReason)
+            return false
+        }
+        return ensureDefaultProxyAvailable(activity, allowRefresh = true)
+    }
+
+    private suspend fun ensureDefaultProxyAvailable(
+        activity: MainActivity,
+        allowRefresh: Boolean,
+    ): Boolean {
+        val group = getDefaultSubscription() ?: return false
+        if (ensureDefaultProxySelected(group) != null) return true
+
+        if (allowRefresh) {
+            refreshDefaultSubscription(activity, showError = true)
+            val refreshedGroup = getDefaultSubscription() ?: return false
+            if (ensureDefaultProxySelected(refreshedGroup) != null) return true
+        }
+
+        onMainDispatcher {
+            activity.snackbar(R.string.cchr_subscription_no_nodes).show()
+        }
+        return false
+    }
+
+    private suspend fun ensureDefaultProxySelected(group: ProxyGroup): ProxyEntity? {
+        val proxies = SagerDatabase.proxyDao.getByGroup(group.id)
+        if (proxies.isEmpty()) return null
+
+        val selectedProxy = SagerDatabase.proxyDao.getById(DataStore.selectedProxy)
+        val target = selectedProxy?.takeIf { it.groupId == group.id } ?: proxies.first()
+        val previous = DataStore.selectedProxy
+
+        DataStore.selectedGroup = group.id
+        DataStore.selectedProxy = target.id
+        DataStore.currentProfile = target.id
+
+        if (previous != target.id) {
+            ProfileManager.postUpdate(previous, true)
+            ProfileManager.postUpdate(target.id, true)
+        }
+        GroupManager.postUpdate(group.id)
+        return target
     }
 
     suspend fun validateDefaultSubscription(group: ProxyGroup): InvalidReason? {
