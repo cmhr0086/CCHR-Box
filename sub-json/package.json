@@ -1,0 +1,21 @@
+{
+  "name": "sub-json",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "tsc --noEmit",
+    "test": "tsc --noEmit",
+    "types": "wrangler types",
+    "dev": "wrangler dev --local",
+    "deploy": "wrangler deploy",
+    "deploy:dry-run": "wrangler deploy --dry-run",
+    "migrate:local": "wrangler d1 migrations apply sub-json-db --local",
+    "migrate:remote": "wrangler d1 migrations apply sub-json-db --remote"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0",
+    "wrangler": "^4.110.0"
+  }
+}
