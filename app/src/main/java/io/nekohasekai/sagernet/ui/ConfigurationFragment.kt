@@ -175,10 +175,7 @@ class ConfigurationFragment @JvmOverloads constructor(
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        if (!select) {
-            toolbar.inflateMenu(R.menu.add_profile_menu)
-            toolbar.setOnMenuItemClickListener(this)
-        } else {
+        if (select) {
             toolbar.setTitle(titleRes)
             toolbar.setNavigationIcon(R.drawable.ic_navigation_close)
             toolbar.setNavigationOnClickListener {
