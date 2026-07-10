@@ -506,6 +506,7 @@
     <string name="cchr_subscription_expired">到期</string>
     <string name="cchr_subscription_exhausted">流量耗尽</string>
     <string name="cchr_subscription_update_failed">更新失败</string>
+    <string name="cchr_subscription_no_nodes">订阅内没有可用节点</string>
     <string name="cchr_subscription_nodes">%d 个节点</string>
     <string name="cchr_subscription_updated_at">更新于 %s</string>
     <string name="cchr_subscription_never_updated">从未更新</string>

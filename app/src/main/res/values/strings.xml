@@ -11,6 +11,7 @@
     <string name="cchr_subscription_expired">Expired</string>
     <string name="cchr_subscription_exhausted">Traffic exhausted</string>
     <string name="cchr_subscription_update_failed">Update failed</string>
+    <string name="cchr_subscription_no_nodes">No available nodes in the subscription.</string>
     <string name="cchr_subscription_nodes">%d nodes</string>
     <string name="cchr_subscription_updated_at">Updated at %s</string>
     <string name="cchr_subscription_never_updated">Never updated</string>
