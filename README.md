@@ -1,106 +1,57 @@
-# CCHR-box
+# CCHR-Box
 
-二改版本私有化部署
+CCHR-Box 是基于 NekoBox for Android 二次开发的私有化 Android 代理客户端。
 
+当前版本聚焦私有化使用场景：用户通过邀请码获取默认订阅，客户端自动导入订阅并选择默认节点，主界面只展示订阅状态和匿名节点延迟。
 
-# NekoBox for Android
+## 下载与安装
 
-[![API](https://img.shields.io/badge/API-21%2B-brightgreen.svg?style=flat)](https://android-arsenal.com/api?level=21)
-[![Releases](https://img.shields.io/github/v/release/MatsuriDayo/NekoBoxForAndroid)](https://github.com/MatsuriDayo/NekoBoxForAndroid/releases)
-[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-orange.svg)](https://www.gnu.org/licenses/gpl-3.0)
+请从本仓库的 GitHub Releases 下载 `v1.0` 对应 APK。
 
-sing-box / universal proxy toolchain for Android.
+Release 会按 CPU 架构提供多个 APK：
 
-一款使用 sing-box 的 Android 通用代理软件.
+- `arm64-v8a`：大多数近年 Android 手机，优先选择。
+- `armeabi-v7a`：较旧的 32 位 ARM 设备。
+- `x86` / `x86_64`：模拟器或少数 Intel 设备。
 
-## 下载 / Downloads
+如果不确定设备架构，通常先安装 `arm64-v8a`。
 
-[![GitHub All Releases](https://img.shields.io/github/downloads/Matsuridayo/NekoBoxForAndroid/total?label=downloads-total&logo=github&style=flat-square)](https://github.com/Matsuridayo/NekoBoxForAndroid/releases)
+## 私有化订阅
 
-[GitHub Releases 下载](https://github.com/Matsuridayo/NekoBoxForAndroid/releases)
+客户端首次连接时会要求输入邀请码。
 
-**Google Play 版本自 2024 年 5 月起已被第三方控制，为非开源版本，请不要下载。**
+邀请码会发送到私有订阅服务：
 
-**The Google Play version has been controlled by a third party since May 2024 and is a non-open
-source version. Please do not download it.**
+`https://sub-json.1630086.xyz`
 
-## 更新日志 & Telegram 发布频道 / Changelog & Telegram Channel
+服务端返回订阅链接后，客户端会自动创建并更新固定名称的“默认订阅”。之后启动时会自动刷新订阅状态，连接前仅在无订阅、订阅失效、无节点或默认节点失效时尝试修复订阅。
 
-https://t.me/Matsuridayo
+## 后台管理
 
-## 项目主页 & 文档 / Homepage & Documents
+订阅邀请码由 Cloudflare Worker 简易后台维护：
 
-https://matsuridayo.github.io
+`https://sub-json.1630086.xyz/admin`
 
-## 支持的代理协议 / Supported Proxy Protocols
+后台用于新增、编辑、启用/禁用和删除邀请码与订阅链接映射。后台密码通过 Cloudflare Secret 配置，不应写入仓库。
 
-* SOCKS (4/4a/5)
-* HTTP(S)
-* SSH
-* Shadowsocks
-* VMess
-* Trojan
-* VLESS
-* AnyTLS
-* ShadowTLS
-* TUIC
-* Hysteria 1/2
-* WireGuard
-* Trojan-Go (trojan-go-plugin)
-* NaïveProxy (naive-plugin)
-* Mieru (mieru-plugin)
+## 1.0 功能说明
 
-请到[这里](https://matsuridayo.github.io/nb4a-plugin/)下载插件以获得完整的代理支持.
+- 应用名称：CCHR-Box。
+- 包名：`com.cchr.box`。
+- 默认主题色：蓝灰色。
+- 主界面仅展示订阅状态和匿名节点延迟。
+- 侧边栏仅保留配置、设置、关于。
+- 设置页仅保留私有化所需基础选项。
+- 无默认订阅时，连接按钮会弹出邀请码输入框。
+- 已有有效订阅时，连接按钮直接启动 VPN，不再每次强制更新订阅。
+- 订阅导入或更新后自动选择默认订阅内的第一个节点。
+- VPN 连接成功后自动测试默认节点延迟并回写首页显示。
 
-Please visit [here](https://matsuridayo.github.io/nb4a-plugin/) to download plugins for full proxy
-supports.
+## 开源声明
 
-## 支持的订阅格式 / Supported Subscription Format
+本项目基于 NekoBox for Android 二次开发，遵循原项目许可证要求保留开源说明。
 
-* 一些广泛使用的格式 (如 Shadowsocks, ClashMeta 和 v2rayN)
-* sing-box 出站
+上游项目：
 
-仅支持解析出站，即节点。分流规则等信息会被忽略。
-
-* Some widely used formats (like Shadowsocks, ClashMeta and v2rayN)
-* sing-box outbound
-
-Only resolving outbound, i.e. nodes, is supported. Information such as diversion rules are ignored.
-
-## 捐助 / Donate
-
-<details>
-
-如果这个项目对您有帮助, 可以通过捐赠的方式帮助我们维持这个项目.
-
-捐赠满等额 50 USD 可以在「[捐赠榜](https://mtrdnt.pages.dev/donation_list)」显示头像, 如果您未被添加到这里,
-欢迎联系我们补充.
-
-Donations of 50 USD or more can display your avatar on
-the [Donation List](https://mtrdnt.pages.dev/donation_list). If you are not added here, please
-contact us to add it.
-
-USDT TRC20
-
-`TRhnA7SXE5Sap5gSG3ijxRmdYFiD4KRhPs`
-
-XMR
-
-`49bwESYQjoRL3xmvTcjZKHEKaiGywjLYVQJMUv79bXonGiyDCs8AzE3KiGW2ytTybBCpWJUvov8SjZZEGg66a4e59GXa6k5`
-
-</details>
-
-## Credits
-
-Core:
-
+- [MatsuriDayo/NekoBoxForAndroid](https://github.com/MatsuriDayo/NekoBoxForAndroid)
 - [SagerNet/sing-box](https://github.com/SagerNet/sing-box)
-
-Android GUI:
-
-- [shadowsocks/shadowsocks-android](https://github.com/shadowsocks/shadowsocks-android)
-- [SagerNet/SagerNet](https://github.com/SagerNet/SagerNet)
-
-Web Dashboard:
-
-- [Yacd-meta](https://github.com/MetaCubeX/Yacd-meta)
