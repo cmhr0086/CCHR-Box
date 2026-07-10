@@ -19,6 +19,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.navigation.NavigationView
 import com.google.android.material.snackbar.Snackbar
 import io.nekohasekai.sagernet.BuildConfig
+import io.nekohasekai.sagernet.CCHR_DEFAULT_SUBSCRIPTION_NAME
 import io.nekohasekai.sagernet.GroupType
 import io.nekohasekai.sagernet.Key
 import io.nekohasekai.sagernet.R
@@ -28,6 +29,7 @@ import io.nekohasekai.sagernet.aidl.SpeedDisplayData
 import io.nekohasekai.sagernet.aidl.TrafficData
 import io.nekohasekai.sagernet.bg.BaseService
 import io.nekohasekai.sagernet.bg.SagerConnection
+import io.nekohasekai.sagernet.cchr.PrivateSubscriptionManager
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.GroupManager
 import io.nekohasekai.sagernet.database.ProfileManager
@@ -78,7 +80,7 @@ class MainActivity : ThemedActivity(),
             displayFragmentWithId(R.id.nav_configuration)
         }
         onBackPressedDispatcher.addCallback {
-            if (supportFragmentManager.findFragmentById(R.id.fragment_holder) is ConfigurationFragment) {
+            if (supportFragmentManager.findFragmentById(R.id.fragment_holder) is PrivateHomeFragment) {
                 moveTaskToBack(true)
             } else {
                 displayFragmentWithId(R.id.nav_configuration)
@@ -86,9 +88,18 @@ class MainActivity : ThemedActivity(),
         }
 
         binding.fab.setOnClickListener {
-            if (DataStore.serviceState.canStop) SagerNet.stopService() else connect.launch(
-                null
-            )
+            if (DataStore.serviceState.canStop) {
+                SagerNet.stopService()
+            } else {
+                binding.fab.isEnabled = false
+                runOnDefaultDispatcher {
+                    val ready = PrivateSubscriptionManager.ensureReadyForConnection(this@MainActivity)
+                    onMainDispatcher {
+                        binding.fab.isEnabled = true
+                        if (ready) connect.launch(null)
+                    }
+                }
+            }
         }
         binding.stats.setOnClickListener { if (DataStore.serviceState.connected) binding.stats.testConnection() }
 
@@ -97,6 +108,9 @@ class MainActivity : ThemedActivity(),
         connection.connect(this, this)
         DataStore.configurationStore.registerChangeListener(this)
         GroupManager.userInterface = GroupInterfaceAdapter(this)
+        runOnDefaultDispatcher {
+            PrivateSubscriptionManager.refreshDefaultSubscription(this@MainActivity, showError = false)
+        }
 
         if (intent?.action == Intent.ACTION_VIEW) {
             onNewIntent(intent)
@@ -181,8 +195,7 @@ class MainActivity : ThemedActivity(),
         ?: group.subscription?.token
         if (name.isNullOrBlank()) return
 
-        group.name = group.name.takeIf { !it.isNullOrBlank() }
-            ?: ("Subscription #" + System.currentTimeMillis())
+        group.name = CCHR_DEFAULT_SUBSCRIPTION_NAME
 
         onMainDispatcher {
 
@@ -309,7 +322,7 @@ class MainActivity : ThemedActivity(),
 
     @SuppressLint("CommitTransaction")
     fun displayFragment(fragment: ToolbarFragment) {
-        if (fragment is ConfigurationFragment) {
+        if (fragment is ConfigurationFragment || fragment is PrivateHomeFragment) {
             binding.stats.allowShow = true
             binding.fab.show()
         } else if (!DataStore.showBottomBar) {
@@ -326,7 +339,7 @@ class MainActivity : ThemedActivity(),
     fun displayFragmentWithId(@IdRes id: Int): Boolean {
         when (id) {
             R.id.nav_configuration -> {
-                displayFragment(ConfigurationFragment())
+                displayFragment(PrivateHomeFragment())
             }
 
             R.id.nav_settings -> displayFragment(SettingsFragment())

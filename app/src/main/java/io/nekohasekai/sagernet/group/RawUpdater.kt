@@ -1,6 +1,7 @@
 package io.nekohasekai.sagernet.group
 
 import android.annotation.SuppressLint
+import io.nekohasekai.sagernet.CCHR_DEFAULT_SUBSCRIPTION_NAME
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.database.*
 import io.nekohasekai.sagernet.fmt.AbstractBean
@@ -76,7 +77,9 @@ object RawUpdater : GroupUpdater() {
                 Util.getStringBox(response.getHeader("Subscription-Userinfo"))
 
             // 修改默认名字
-            if (proxyGroup.name?.startsWith("Subscription #") == true) {
+            if (proxyGroup.name != CCHR_DEFAULT_SUBSCRIPTION_NAME &&
+                proxyGroup.name?.startsWith("Subscription #") == true
+            ) {
                 var remoteName = Util.getStringBox(response.getHeader("content-disposition"))
                 if (remoteName.isNotBlank()) {
                     remoteName = Util.decodeFilename(remoteName)

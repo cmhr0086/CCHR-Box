@@ -1,8 +1,28 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name" translatable="false">NekoBox</string>
-    <string name="app_name_long" translatable="false">NekoBox for Android</string>
+    <string name="app_name" translatable="false">CCHR-Box</string>
+    <string name="app_name_long" translatable="false">CCHR-Box</string>
     <string name="app_desc">The universal proxy toolchain for Android, written in Kotlin.</string>
+    <string name="cchr_default_subscription" translatable="false">默认订阅</string>
+    <string name="cchr_subscription_overview">Subscription status</string>
+    <string name="cchr_subscription_not_activated">Not activated</string>
+    <string name="cchr_subscription_updating">Updating</string>
+    <string name="cchr_subscription_updated">Updated</string>
+    <string name="cchr_subscription_expired">Expired</string>
+    <string name="cchr_subscription_exhausted">Traffic exhausted</string>
+    <string name="cchr_subscription_update_failed">Update failed</string>
+    <string name="cchr_subscription_nodes">%d nodes</string>
+    <string name="cchr_subscription_updated_at">Updated at %s</string>
+    <string name="cchr_subscription_never_updated">Never updated</string>
+    <string name="cchr_node_latency">Node latency</string>
+    <string name="cchr_node_label">Node %d</string>
+    <string name="cchr_latency_untested">Untested</string>
+    <string name="cchr_invite_title">Invite code</string>
+    <string name="cchr_invite_hint">Enter invite code</string>
+    <string name="cchr_subscription_service_not_configured">Subscription service is not configured yet.</string>
+    <string name="cchr_subscription_url_missing">Subscription URL is missing.</string>
+    <string name="cchr_default_subscription_removed_expired">Default subscription has expired and was removed.</string>
+    <string name="cchr_default_subscription_removed_exhausted">Default subscription traffic is exhausted and was removed.</string>
     <string name="project">Project</string>
     <string name="github">Source code</string>
     <string name="telegram">Telegram update channel</string>
