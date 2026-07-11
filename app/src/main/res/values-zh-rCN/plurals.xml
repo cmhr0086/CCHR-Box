@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <plurals name="cchr_expire_days_remaining">
+        <item quantity="other">剩余 %d 天</item>
+    </plurals>
+</resources>

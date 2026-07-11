@@ -15,6 +15,14 @@ type LookupRow = {
   subscription_url: string;
 };
 
+type AnnouncementRow = {
+  id: string;
+  title: string | null;
+  content: string | null;
+  enabled: number;
+  updated_at: string;
+};
+
 type ErrorStatus = 400 | 404 | 405 | 415 | 500;
 type AdminMessage = { type: "ok" | "error"; text: string } | null;
 
@@ -65,6 +73,13 @@ async function handleRequest(request: Request, env: AppEnv): Promise<Response> {
 
   if (url.pathname === "/health" && request.method === "GET") {
     return json({ ok: true, service: "sub-json" });
+  }
+
+  if (url.pathname === "/announcement") {
+    if (request.method !== "GET") {
+      return jsonError(405, "请求方法不支持", { Allow: "GET" });
+    }
+    return handleAnnouncementRequest(env);
   }
 
   if (url.pathname !== "/") {
@@ -149,6 +164,10 @@ async function handleAdminRequest(
     return handleInviteCreate(request, env);
   }
 
+  if (url.pathname === "/admin/announcement" && request.method === "POST") {
+    return handleAnnouncementUpdate(request, env);
+  }
+
   const inviteMatch = /^\/admin\/invites\/([^/]+)(\/delete)?$/.exec(url.pathname);
   if (inviteMatch && request.method === "POST") {
     const inviteCode = decodeURIComponent(inviteMatch[1]);
@@ -180,6 +199,7 @@ async function renderAdminHome(env: AppEnv, message: AdminMessage): Promise<Resp
   const rows = await env.DB.prepare(
     "SELECT invite_code, subscription_url, enabled, note, created_at, updated_at FROM invite_subscriptions ORDER BY created_at DESC",
   ).all<InviteRow>();
+  const announcement = await getAnnouncement(env);
 
   const body = `
     <section class="toolbar">
@@ -192,6 +212,7 @@ async function renderAdminHome(env: AppEnv, message: AdminMessage): Promise<Resp
       </form>
     </section>
     ${renderMessage(message)}
+    ${renderAnnouncementForm(announcement)}
     <section class="panel">
       <h2>新增或覆盖邀请码</h2>
       <form method="post" action="/admin/invites" class="grid-form">
@@ -209,6 +230,50 @@ async function renderAdminHome(env: AppEnv, message: AdminMessage): Promise<Resp
   `;
 
   return html(renderPage("sub-json 后台", body));
+}
+
+async function handleAnnouncementRequest(env: AppEnv): Promise<Response> {
+  const announcement = await getAnnouncement(env);
+  const content = announcement?.content?.trim() ?? "";
+  if (announcement === null || announcement.enabled !== 1 || content.length === 0) {
+    return json({ enabled: false });
+  }
+  return json({
+    enabled: true,
+    title: announcement.title?.trim() ?? "",
+    content,
+    updatedAt: announcement.updated_at,
+  });
+}
+
+async function getAnnouncement(env: AppEnv): Promise<AnnouncementRow | null> {
+  return env.DB.prepare(
+    "SELECT id, title, content, enabled, updated_at FROM app_announcements WHERE id = ? LIMIT 1",
+  )
+    .bind("default")
+    .first<AnnouncementRow>();
+}
+
+async function handleAnnouncementUpdate(request: Request, env: AppEnv): Promise<Response> {
+  const form = await readForm(request);
+  if (!form.ok) return redirect(`/admin?error=${encodeURIComponent(form.message)}`);
+
+  const title = (form.data.get("title")?.toString() ?? "").trim();
+  const content = (form.data.get("content")?.toString() ?? "").trim();
+  const enabled = form.data.get("enabled") === "1" ? 1 : 0;
+
+  await env.DB.prepare(
+    `INSERT INTO app_announcements (id, title, content, enabled)
+     VALUES ('default', ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       title = excluded.title,
+       content = excluded.content,
+       enabled = excluded.enabled`,
+  )
+    .bind(title, content, enabled)
+    .run();
+
+  return redirect("/admin?message=公告已保存");
 }
 
 async function handleInviteCreate(request: Request, env: AppEnv): Promise<Response> {
@@ -288,6 +353,21 @@ function renderInviteTable(rows: InviteRow[]): string {
   `;
 }
 
+function renderAnnouncementForm(announcement: AnnouncementRow | null): string {
+  const checked = announcement?.enabled === 1 ? " checked" : "";
+  return `
+    <section class="panel">
+      <h2>公告</h2>
+      <form method="post" action="/admin/announcement" class="announcement-form">
+        <label>标题<input name="title" value="${escapeHtml(announcement?.title ?? "")}" placeholder="公告"></label>
+        <label>内容<textarea name="content" rows="5" placeholder="填写后会显示在客户端首页">${escapeHtml(announcement?.content ?? "")}</textarea></label>
+        <label class="checkbox"><input name="enabled" type="checkbox" value="1"${checked}> 启用公告</label>
+        <button type="submit">保存公告</button>
+      </form>
+    </section>
+  `;
+}
+
 function renderLoginPage(message: AdminMessage): string {
   return renderPage(
     "登录",
@@ -324,12 +404,14 @@ function renderPage(title: string, body: string): string {
     .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 18px; margin-bottom: 16px; }
     .login { max-width: 420px; margin: 15vh auto 0; }
     label { display: grid; gap: 6px; color: var(--muted); font-size: 13px; }
-    input { width: 100%; border: 1px solid var(--line); border-radius: 6px; padding: 10px 11px; background: #0f1417; color: var(--text); font: inherit; }
-    input:focus { outline: 2px solid color-mix(in srgb, var(--accent), transparent 45%); border-color: var(--accent); }
+    input, textarea { width: 100%; border: 1px solid var(--line); border-radius: 6px; padding: 10px 11px; background: #0f1417; color: var(--text); font: inherit; }
+    textarea { resize: vertical; min-height: 120px; }
+    input:focus, textarea:focus { outline: 2px solid color-mix(in srgb, var(--accent), transparent 45%); border-color: var(--accent); }
     button { border: 0; border-radius: 6px; padding: 10px 14px; color: white; background: var(--accent); font: inherit; cursor: pointer; white-space: nowrap; }
     button.secondary { background: #37474f; }
     button.danger { background: var(--danger); }
     .grid-form { display: grid; grid-template-columns: 1fr 2fr 1fr auto auto; gap: 12px; align-items: end; }
+    .announcement-form { display: grid; gap: 12px; }
     .checkbox { display: flex; align-items: center; gap: 8px; min-height: 41px; }
     .checkbox input { width: auto; }
     .message { border-radius: 6px; padding: 11px 12px; margin-bottom: 16px; background: #143623; color: #b9f6ca; }
