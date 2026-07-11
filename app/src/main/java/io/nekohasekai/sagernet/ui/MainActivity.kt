@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.os.RemoteException
 import android.view.KeyEvent
 import android.view.MenuItem
+import android.widget.TextView
 import androidx.activity.addCallback
 import androidx.annotation.IdRes
 import androidx.core.app.ActivityCompat
@@ -77,6 +78,7 @@ class MainActivity : ThemedActivity(),
             binding.drawerLayout.removeView(binding.navView)
         }
         navigation.setNavigationItemSelectedListener(this)
+        bindNavigationHeader()
 
         if (savedInstanceState == null) {
             displayFragmentWithId(R.id.nav_configuration)
@@ -142,6 +144,11 @@ class MainActivity : ThemedActivity(),
     }
 
     fun refreshNavMenu(_clashApi: Boolean) {
+    }
+
+    private fun bindNavigationHeader() {
+        val header = navigation.getHeaderView(0)
+        header.findViewById<TextView>(R.id.nav_header_version).text = SagerNet.appVersionNameForDisplay
     }
 
     override fun onNewIntent(intent: Intent) {

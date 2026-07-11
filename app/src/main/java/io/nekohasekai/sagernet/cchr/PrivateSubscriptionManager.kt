@@ -5,6 +5,7 @@ import android.widget.LinearLayout
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
+import io.nekohasekai.sagernet.CCHR_ANNOUNCEMENT_ENDPOINT
 import io.nekohasekai.sagernet.CCHR_DEFAULT_SUBSCRIPTION_NAME
 import io.nekohasekai.sagernet.CCHR_SUBSCRIPTION_ENDPOINT
 import io.nekohasekai.sagernet.GroupType
@@ -47,6 +48,12 @@ object PrivateSubscriptionManager {
         val isExhausted: Boolean
             get() = total > 0L && used >= total
     }
+
+    data class Announcement(
+        val title: String,
+        val content: String,
+        val updatedAt: String,
+    )
 
     enum class InvalidReason {
         EXPIRED,
@@ -127,6 +134,25 @@ object PrivateSubscriptionManager {
                 ensureDefaultProxyAvailable(activity, allowRefresh = false)
     }
 
+    suspend fun replaceDefaultSubscriptionWithInviteCode(activity: MainActivity): Boolean {
+        val confirmed = confirmReplaceInviteCode(activity)
+        if (!confirmed) return false
+
+        getDefaultSubscription()?.let {
+            GroupManager.deleteGroup(it.id)
+        }
+        DataStore.selectedProxy = 0L
+        DataStore.currentProfile = 0L
+
+        val inviteCode = requestInviteCode(activity) ?: return false
+        return activateWithInviteCode(activity, inviteCode)
+    }
+
+    suspend fun getSelectedDefaultProxy(): ProxyEntity? {
+        val group = getDefaultSubscription() ?: return null
+        return ensureDefaultProxySelected(group)
+    }
+
     suspend fun testDefaultProxyLatency(profileId: Long) {
         val group = getDefaultSubscription() ?: return
         val profile = SagerDatabase.proxyDao.getById(profileId) ?: return
@@ -144,6 +170,35 @@ object PrivateSubscriptionManager {
         SagerDatabase.proxyDao.updateProxy(profile)
         ProfileManager.postUpdate(profile.id, true)
         GroupManager.postUpdate(group.id)
+    }
+
+    suspend fun fetchAnnouncement(): Announcement? {
+        if (CCHR_ANNOUNCEMENT_ENDPOINT.isBlank()) return null
+        return runCatching {
+            onIoDispatcher {
+                val connection = (URL(CCHR_ANNOUNCEMENT_ENDPOINT).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 8000
+                    readTimeout = 8000
+                    setRequestProperty("Accept", "application/json")
+                }
+                try {
+                    if (connection.responseCode !in 200..299) return@onIoDispatcher null
+                    val responseText = connection.inputStream.bufferedReader().readText()
+                    val json = JSONObject(responseText.takeIf { it.isNotBlank() } ?: "{}")
+                    if (!json.optBoolean("enabled", false)) return@onIoDispatcher null
+                    val content = json.optString("content").trim()
+                    if (content.isBlank()) return@onIoDispatcher null
+                    Announcement(
+                        title = json.optString("title").trim(),
+                        content = content,
+                        updatedAt = json.optString("updatedAt").trim(),
+                    )
+                } finally {
+                    connection.disconnect()
+                }
+            }
+        }.getOrNull()
     }
 
     private suspend fun ensureDefaultSubscriptionConnectable(
@@ -192,8 +247,8 @@ object PrivateSubscriptionManager {
         if (previous != target.id) {
             ProfileManager.postUpdate(previous, true)
             ProfileManager.postUpdate(target.id, true)
+            GroupManager.postUpdate(group.id)
         }
-        GroupManager.postUpdate(group.id)
         return target
     }
 
@@ -275,6 +330,26 @@ object PrivateSubscriptionManager {
                 }
                 .setOnCancelListener {
                     result.complete(null)
+                }
+                .show()
+        }
+        return result.await()
+    }
+
+    private suspend fun confirmReplaceInviteCode(activity: MainActivity): Boolean {
+        val result = CompletableDeferred<Boolean>()
+        onMainDispatcher {
+            MaterialAlertDialogBuilder(activity)
+                .setTitle(R.string.cchr_change_invite)
+                .setMessage(R.string.cchr_change_invite_confirm)
+                .setPositiveButton(android.R.string.ok) { _, _ ->
+                    result.complete(true)
+                }
+                .setNegativeButton(android.R.string.cancel) { _, _ ->
+                    result.complete(false)
+                }
+                .setOnCancelListener {
+                    result.complete(false)
                 }
                 .show()
         }

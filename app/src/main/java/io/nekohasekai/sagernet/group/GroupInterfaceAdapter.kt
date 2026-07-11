@@ -1,6 +1,8 @@
 package io.nekohasekai.sagernet.group
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import io.nekohasekai.sagernet.CCHR_DEFAULT_SUBSCRIPTION_NAME
+import io.nekohasekai.sagernet.GroupType
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.database.GroupManager
 import io.nekohasekai.sagernet.database.ProxyGroup
@@ -35,6 +37,8 @@ class GroupInterfaceAdapter(val context: ThemedActivity) : GroupManager.Interfac
         duplicate: List<String>,
         byUser: Boolean
     ) {
+        val isPrivateDefaultSubscription =
+            group.type == GroupType.SUBSCRIPTION && group.name == CCHR_DEFAULT_SUBSCRIPTION_NAME
         if (changed == 0 && duplicate.isEmpty()) {
             if (byUser) context.snackbar(
                     context.getString(
@@ -43,6 +47,7 @@ class GroupInterfaceAdapter(val context: ThemedActivity) : GroupManager.Interfac
             ).show()
         } else {
             context.snackbar(context.getString(R.string.group_updated, group.name, changed)).show()
+            if (isPrivateDefaultSubscription) return
 
             var status = ""
             if (added.isNotEmpty()) {
