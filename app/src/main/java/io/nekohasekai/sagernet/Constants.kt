@@ -2,6 +2,7 @@ package io.nekohasekai.sagernet
 
 const val CONNECTION_TEST_URL = "http://cp.cloudflare.com/"
 const val CCHR_DEFAULT_SUBSCRIPTION_NAME = "默认订阅"
+const val CCHR_TEMP_SUBSCRIPTION_NAME = "CCHR-Box Activation"
 const val CCHR_SUBSCRIPTION_ENDPOINT = "https://sub-json.1630086.xyz"
 const val CCHR_ANNOUNCEMENT_ENDPOINT = "https://sub-json.1630086.xyz/announcement"
 

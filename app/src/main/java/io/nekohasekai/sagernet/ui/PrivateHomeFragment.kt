@@ -1,22 +1,25 @@
 package io.nekohasekai.sagernet.ui
 
+import android.content.Intent
 import android.os.Bundle
 import android.util.TypedValue
 import android.view.View
-import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.isVisible
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.button.MaterialButton
 import io.nekohasekai.sagernet.GroupType
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.cchr.PrivateSubscriptionManager
+import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.GroupManager
 import io.nekohasekai.sagernet.database.ProxyEntity
 import io.nekohasekai.sagernet.database.ProxyGroup
 import io.nekohasekai.sagernet.databinding.LayoutPrivateHomeBinding
 import io.nekohasekai.sagernet.group.GroupUpdater
 import io.nekohasekai.sagernet.ktx.onMainDispatcher
+import io.nekohasekai.sagernet.ktx.readableMessage
 import io.nekohasekai.sagernet.ktx.runOnDefaultDispatcher
 import io.nekohasekai.sagernet.widget.ListListener
 import moe.matsuri.nb4a.utils.toBytesString
@@ -27,7 +30,6 @@ class PrivateHomeFragment : ToolbarFragment(R.layout.layout_private_home), Group
     private var binding: LayoutPrivateHomeBinding? = null
     private var refreshingSubscription = false
     private var testingLatency = false
-    private var changingInvite = false
     private var loadingAnnouncement = false
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -37,6 +39,7 @@ class PrivateHomeFragment : ToolbarFragment(R.layout.layout_private_home), Group
         toolbar.setTitle(R.string.menu_configuration)
         GroupManager.addListener(this)
         binding?.subscriptionRefresh?.setOnClickListener { refreshSubscription() }
+        binding?.nodeSelectorCard?.setOnClickListener { showNodeSelector() }
         binding?.latencyTest?.setOnClickListener { testLatency() }
         binding?.changeInvite?.setOnClickListener { changeInviteCode() }
         reload()
@@ -59,13 +62,14 @@ class PrivateHomeFragment : ToolbarFragment(R.layout.layout_private_home), Group
         runOnDefaultDispatcher {
             val group = PrivateSubscriptionManager.getDefaultSubscription()
             val proxy = PrivateSubscriptionManager.getSelectedDefaultProxy()
+            val proxies = PrivateSubscriptionManager.getDefaultProxies()
             onMainDispatcher {
-                bind(group, proxy)
+                bind(group, proxy, proxies)
             }
         }
     }
 
-    private fun bind(group: ProxyGroup?, proxy: ProxyEntity?) {
+    private fun bind(group: ProxyGroup?, proxy: ProxyEntity?, proxies: List<ProxyEntity>) {
         val binding = binding ?: return
         updateButtonState(
             binding.subscriptionRefresh,
@@ -79,20 +83,18 @@ class PrivateHomeFragment : ToolbarFragment(R.layout.layout_private_home), Group
             R.string.cchr_test_latency,
             R.string.cchr_testing_latency
         )
-        binding.changeInvite.isEnabled = !changingInvite
-
         if (group == null || group.type != GroupType.SUBSCRIPTION) {
-            binding.subscriptionStatus.setText(R.string.cchr_subscription_not_activated)
+            setSubscriptionStatus(R.string.cchr_subscription_not_activated)
             binding.subscriptionUsage.text = getString(R.string.cchr_usage_used_only, 0L.toBytesString())
             binding.usageProgress.progress = 0
             binding.subscriptionExpire.setText(R.string.cchr_expire_unknown)
             binding.expireProgress.progress = 0
-            renderLatency(proxy)
+            renderNodeSelector(null, emptyList())
             return
         }
 
         val usage = PrivateSubscriptionManager.parseUsageInfo(group.subscription?.subscriptionUserinfo)
-        binding.subscriptionStatus.setText(
+        setSubscriptionStatus(
             when {
                 GroupUpdater.updating.contains(group.id) -> R.string.cchr_subscription_updating
                 usage.isExpired -> R.string.cchr_subscription_expired
@@ -144,22 +146,67 @@ class PrivateHomeFragment : ToolbarFragment(R.layout.layout_private_home), Group
                 binding.expireProgress.progress = (daysRemaining.coerceAtMost(30) * 100 / 30)
             }
         }
-        binding.expireProgress.setIndicatorColor(ContextCompat.getColor(requireContext(), android.R.color.white))
+        binding.expireProgress.setIndicatorColor(themeColor(R.attr.colorPrimary))
+        binding.expireProgress.trackColor = themeColor(R.attr.colorMaterial100)
 
-        renderLatency(proxy)
+        renderNodeSelector(proxy, proxies)
     }
 
-    private fun renderLatency(proxy: ProxyEntity?) {
+    private fun setSubscriptionStatus(statusRes: Int) {
+        binding?.subscriptionStatus?.text =
+            "${getString(R.string.cchr_subscription_overview)}: ${getString(statusRes)}"
+    }
+
+    private fun renderNodeSelector(proxy: ProxyEntity?, proxies: List<ProxyEntity>) {
         val binding = binding ?: return
-        binding.latencyName.setText(R.string.cchr_node_label_single)
-        val (text, color) = when {
+        binding.nodeSelectorCurrent.text = when {
+            proxy != null -> proxyDisplayName(proxy, 0)
+            proxies.isEmpty() -> getString(R.string.cchr_no_available_nodes)
+            else -> proxyDisplayName(proxies.first(), 0)
+        }
+        val (text, color) = latencyDisplay(proxy)
+        binding.nodeSelectorLatency.text = text
+        binding.nodeSelectorLatency.setTextColor(color)
+        binding.nodeSelectorCard.isEnabled = proxies.isNotEmpty()
+    }
+
+    private fun latencyDisplay(proxy: ProxyEntity?): Pair<String, Int> {
+        return when {
             proxy == null -> getString(R.string.cchr_latency_untested) to secondaryTextColor()
             proxy.status == 1 && proxy.ping > 0 -> getString(R.string.available, proxy.ping) to latencyColor(proxy.ping)
             proxy.status > 1 -> getString(R.string.unavailable) to ContextCompat.getColor(requireContext(), R.color.material_red_500)
             else -> getString(R.string.cchr_latency_untested) to secondaryTextColor()
         }
-        binding.latencyValue.text = text
-        binding.latencyValue.setTextColor(color)
+    }
+
+    private fun showNodeSelector() {
+        val activity = activity as? MainActivity ?: return
+        runOnDefaultDispatcher {
+            val proxies = PrivateSubscriptionManager.getDefaultProxies()
+            val selected = PrivateSubscriptionManager.getSelectedDefaultProxy()
+            onMainDispatcher {
+                if (proxies.isEmpty()) {
+                    activity.snackbar(R.string.cchr_subscription_no_nodes).show()
+                    return@onMainDispatcher
+                }
+                val names = proxies.mapIndexed { index, proxy -> proxyDisplayName(proxy, index) }.toTypedArray()
+                val checked = proxies.indexOfFirst { it.id == selected?.id }.coerceAtLeast(0)
+                MaterialAlertDialogBuilder(requireContext())
+                    .setTitle(R.string.cchr_select_node)
+                    .setSingleChoiceItems(names, checked) { dialog, which ->
+                        dialog.dismiss()
+                        val target = proxies[which]
+                        runOnDefaultDispatcher {
+                            val ok = PrivateSubscriptionManager.selectDefaultProxy(target.id)
+                            onMainDispatcher {
+                                if (ok) reload()
+                            }
+                        }
+                    }
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show()
+            }
+        }
     }
 
     private fun refreshSubscription() {
@@ -188,11 +235,17 @@ class PrivateHomeFragment : ToolbarFragment(R.layout.layout_private_home), Group
         reload()
         runOnDefaultDispatcher {
             val proxy = PrivateSubscriptionManager.getSelectedDefaultProxy()
-            if (proxy != null) {
-                PrivateSubscriptionManager.testDefaultProxyLatency(proxy.id)
-            }
-            val updated = proxy?.id?.let { id ->
-                PrivateSubscriptionManager.getSelectedDefaultProxy()?.takeIf { it.id == id }
+            val updated = proxy?.let {
+                if (DataStore.serviceState.connected) {
+                    try {
+                        PrivateSubscriptionManager.recordDefaultProxyLatency(it.id, activity.urlTest(), null)
+                    } catch (e: Throwable) {
+                        PrivateSubscriptionManager.recordDefaultProxyLatency(it.id, 0, e.readableMessage)
+                    }
+                } else {
+                    PrivateSubscriptionManager.testDefaultProxyLatency(it.id)
+                    PrivateSubscriptionManager.getSelectedDefaultProxy()?.takeIf { updated -> updated.id == it.id }
+                }
             }
             onMainDispatcher {
                 testingLatency = false
@@ -207,20 +260,17 @@ class PrivateHomeFragment : ToolbarFragment(R.layout.layout_private_home), Group
 
     private fun changeInviteCode() {
         val activity = activity as? MainActivity ?: return
-        if (changingInvite) return
-        changingInvite = true
-        binding?.changeInvite?.isEnabled = false
-        runOnDefaultDispatcher {
-            val ok = PrivateSubscriptionManager.replaceDefaultSubscriptionWithInviteCode(activity)
-            onMainDispatcher {
-                changingInvite = false
-                activity.snackbar(
-                    if (ok) R.string.cchr_invite_changed
-                    else R.string.cchr_invite_change_cancelled
-                ).show()
-                reload()
+        MaterialAlertDialogBuilder(requireContext())
+            .setTitle(R.string.cchr_change_invite)
+            .setMessage(R.string.cchr_change_invite_confirm)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                startActivity(
+                    Intent(activity, InviteCodeActivity::class.java)
+                        .putExtra(InviteCodeActivity.EXTRA_REPLACE, true)
+                )
             }
-        }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private fun reloadAnnouncement() {
@@ -290,13 +340,23 @@ class PrivateHomeFragment : ToolbarFragment(R.layout.layout_private_home), Group
     }
 
     private fun secondaryTextColor(): Int {
+        return themeColor(android.R.attr.textColorSecondary)
+    }
+
+    private fun themeColor(attr: Int): Int {
         val value = TypedValue()
-        requireContext().theme.resolveAttribute(android.R.attr.textColorSecondary, value, true)
+        requireContext().theme.resolveAttribute(attr, value, true)
         return if (value.resourceId != 0) {
             ContextCompat.getColor(requireContext(), value.resourceId)
         } else {
             value.data
         }
+    }
+
+    private fun proxyDisplayName(proxy: ProxyEntity, index: Int): String {
+        return runCatching { proxy.displayName().takeIf { it.isNotBlank() } }
+            .getOrNull()
+            ?: getString(R.string.cchr_node_label, index + 1)
     }
 
     override suspend fun groupAdd(group: ProxyGroup) {

@@ -2,4 +2,5 @@
 <resources>
     <color name="fab_color_progress">@color/material_light_white</color>
     <color name="preference_simple_menu_background">#303030</color>
+    <color name="cchr_private_home_background">#101010</color>
 </resources>

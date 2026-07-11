@@ -1,15 +1,13 @@
 package io.nekohasekai.sagernet.cchr
 
-import android.text.InputType
-import android.widget.LinearLayout
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.android.material.textfield.TextInputEditText
-import com.google.android.material.textfield.TextInputLayout
 import io.nekohasekai.sagernet.CCHR_ANNOUNCEMENT_ENDPOINT
 import io.nekohasekai.sagernet.CCHR_DEFAULT_SUBSCRIPTION_NAME
 import io.nekohasekai.sagernet.CCHR_SUBSCRIPTION_ENDPOINT
+import io.nekohasekai.sagernet.CCHR_TEMP_SUBSCRIPTION_NAME
 import io.nekohasekai.sagernet.GroupType
 import io.nekohasekai.sagernet.R
+import io.nekohasekai.sagernet.SagerNet
 import io.nekohasekai.sagernet.bg.proto.UrlTest
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.GroupManager
@@ -24,7 +22,6 @@ import io.nekohasekai.sagernet.ktx.onIoDispatcher
 import io.nekohasekai.sagernet.ktx.onMainDispatcher
 import io.nekohasekai.sagernet.ktx.readableMessage
 import io.nekohasekai.sagernet.ui.MainActivity
-import kotlinx.coroutines.CompletableDeferred
 import org.json.JSONObject
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
@@ -75,8 +72,10 @@ object PrivateSubscriptionManager {
     suspend fun ensureReadyForConnection(activity: MainActivity): Boolean {
         val group = getDefaultSubscription()
         return if (group == null) {
-            val inviteCode = requestInviteCode(activity) ?: return false
-            activateWithInviteCode(activity, inviteCode)
+            onMainDispatcher {
+                activity.snackbar(R.string.cchr_activate_required).show()
+            }
+            false
         } else {
             ensureDefaultSubscriptionConnectable(activity, group)
         }
@@ -112,45 +111,119 @@ object PrivateSubscriptionManager {
     }
 
     suspend fun activateWithInviteCode(activity: MainActivity, inviteCode: String): Boolean {
-        val subscriptionUrl = try {
-            fetchSubscriptionUrl(inviteCode)
+        return try {
+            activateWithInviteCode(inviteCode, replaceExisting = false)
         } catch (e: Throwable) {
             onMainDispatcher {
                 activity.snackbar(e.readableMessage).show()
             }
+            false
+        }
+    }
+
+    suspend fun activateWithInviteCode(inviteCode: String, replaceExisting: Boolean): Boolean {
+        val subscriptionUrl = fetchSubscriptionUrl(inviteCode)
+        val oldGroups = SagerDatabase.groupDao.subscriptions()
+        if (!replaceExisting && oldGroups.isNotEmpty()) return true
+
+        val group = createSubscriptionGroup(subscriptionUrl, temporary = replaceExisting)
+        val ok = try {
+            updateAndValidateNewSubscription(group)
+        } catch (e: Throwable) {
+            GroupManager.deleteGroup(group.id)
+            throw e
+        }
+        if (!ok) {
+            GroupManager.deleteGroup(group.id)
             return false
         }
+
+        if (replaceExisting) {
+            GroupManager.deleteGroup(oldGroups.filter { it.id != group.id })
+        }
+        group.name = CCHR_DEFAULT_SUBSCRIPTION_NAME
+        GroupManager.updateGroup(group)
+        ensureDefaultProxySelected(group)
+        if (replaceExisting && DataStore.serviceState.started) {
+            SagerNet.reloadService()
+        }
+        return true
+    }
+
+    private suspend fun createSubscriptionGroup(subscriptionUrl: String, temporary: Boolean): ProxyGroup {
         val group = ProxyGroup(
             type = GroupType.SUBSCRIPTION,
-            name = CCHR_DEFAULT_SUBSCRIPTION_NAME,
+            name = if (temporary) CCHR_TEMP_SUBSCRIPTION_NAME else CCHR_DEFAULT_SUBSCRIPTION_NAME,
             subscription = SubscriptionBean().apply {
                 link = subscriptionUrl
                 deduplication = true
                 autoUpdate = true
             },
         )
-        GroupManager.createGroup(group)
-        return refreshDefaultSubscription(activity, showError = true) &&
-                ensureDefaultProxyAvailable(activity, allowRefresh = false)
+        return GroupManager.createGroup(group)
     }
 
-    suspend fun replaceDefaultSubscriptionWithInviteCode(activity: MainActivity): Boolean {
-        val confirmed = confirmReplaceInviteCode(activity)
-        if (!confirmed) return false
-
-        getDefaultSubscription()?.let {
-            GroupManager.deleteGroup(it.id)
+    private suspend fun updateAndValidateNewSubscription(group: ProxyGroup): Boolean {
+        val ok = GroupUpdater.executeUpdate(group, false)
+        defaultUpdateFailed = !ok
+        if (!ok) return false
+        validateDefaultSubscription(group)?.let { return false }
+        if (SagerDatabase.proxyDao.getByGroup(group.id).isEmpty()) {
+            error(app.getString(R.string.cchr_subscription_no_nodes))
         }
-        DataStore.selectedProxy = 0L
-        DataStore.currentProfile = 0L
-
-        val inviteCode = requestInviteCode(activity) ?: return false
-        return activateWithInviteCode(activity, inviteCode)
+        return true
     }
 
     suspend fun getSelectedDefaultProxy(): ProxyEntity? {
         val group = getDefaultSubscription() ?: return null
         return ensureDefaultProxySelected(group)
+    }
+
+    suspend fun getDefaultProxies(): List<ProxyEntity> {
+        val group = getDefaultSubscription() ?: return emptyList()
+        return SagerDatabase.proxyDao.getByGroup(group.id)
+    }
+
+    suspend fun selectDefaultProxy(profileId: Long): Boolean {
+        val group = getDefaultSubscription() ?: return false
+        val target = SagerDatabase.proxyDao.getById(profileId)
+            ?.takeIf { it.groupId == group.id }
+            ?: return false
+        val previous = DataStore.selectedProxy
+
+        DataStore.selectedGroup = group.id
+        DataStore.selectedProxy = target.id
+
+        if (previous != target.id) {
+            ProfileManager.postUpdate(previous, true)
+            ProfileManager.postUpdate(target.id, true)
+            GroupManager.postUpdate(group.id)
+            if (DataStore.serviceState.started) {
+                SagerNet.reloadService()
+            }
+        }
+        return true
+    }
+
+    suspend fun recordDefaultProxyLatency(profileId: Long, ping: Int, error: String?): ProxyEntity? {
+        val group = getDefaultSubscription() ?: return null
+        val profile = SagerDatabase.proxyDao.getById(profileId)
+            ?.takeIf { it.groupId == group.id }
+            ?: return null
+
+        if (error == null && ping > 0) {
+            profile.status = 1
+            profile.ping = ping
+            profile.error = null
+        } else {
+            profile.status = 3
+            profile.ping = 0
+            profile.error = error
+        }
+        SagerDatabase.proxyDao.updateProxy(profile)
+        ProfileManager.postUpdate(profile.id, true)
+        GroupManager.postUpdate(group.id)
+        return profile
     }
 
     suspend fun testDefaultProxyLatency(profileId: Long) {
@@ -159,17 +232,10 @@ object PrivateSubscriptionManager {
         if (profile.groupId != group.id) return
 
         try {
-            profile.status = 1
-            profile.ping = UrlTest().doTest(profile)
-            profile.error = null
+            recordDefaultProxyLatency(profile.id, UrlTest().doTest(profile), null)
         } catch (e: Throwable) {
-            profile.status = 3
-            profile.ping = 0
-            profile.error = e.readableMessage
+            recordDefaultProxyLatency(profile.id, 0, e.readableMessage)
         }
-        SagerDatabase.proxyDao.updateProxy(profile)
-        ProfileManager.postUpdate(profile.id, true)
-        GroupManager.postUpdate(group.id)
     }
 
     suspend fun fetchAnnouncement(): Announcement? {
@@ -242,7 +308,6 @@ object PrivateSubscriptionManager {
 
         DataStore.selectedGroup = group.id
         DataStore.selectedProxy = target.id
-        DataStore.currentProfile = target.id
 
         if (previous != target.id) {
             ProfileManager.postUpdate(previous, true)
@@ -286,74 +351,6 @@ object PrivateSubscriptionManager {
             total = get("total"),
             expire = get("expire"),
         )
-    }
-
-    private suspend fun requestInviteCode(activity: MainActivity): String? {
-        val result = CompletableDeferred<String?>()
-        onMainDispatcher {
-            val horizontalPadding = (24 * activity.resources.displayMetrics.density).toInt()
-            val topPadding = (8 * activity.resources.displayMetrics.density).toInt()
-            val input = TextInputEditText(activity).apply {
-                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-                setSingleLine()
-            }
-            val inputLayout = TextInputLayout(activity).apply {
-                hint = activity.getString(R.string.cchr_invite_hint)
-                boxBackgroundMode = TextInputLayout.BOX_BACKGROUND_OUTLINE
-                addView(
-                    input,
-                    LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT
-                    )
-                )
-            }
-            val container = LinearLayout(activity).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(horizontalPadding, topPadding, horizontalPadding, 0)
-                addView(
-                    inputLayout,
-                    LinearLayout.LayoutParams(
-                        LinearLayout.LayoutParams.MATCH_PARENT,
-                        LinearLayout.LayoutParams.WRAP_CONTENT
-                    )
-                )
-            }
-            MaterialAlertDialogBuilder(activity)
-                .setTitle(R.string.cchr_invite_title)
-                .setView(container)
-                .setPositiveButton(android.R.string.ok) { _, _ ->
-                    result.complete(input.text?.toString()?.trim().takeIf { !it.isNullOrBlank() })
-                }
-                .setNegativeButton(android.R.string.cancel) { _, _ ->
-                    result.complete(null)
-                }
-                .setOnCancelListener {
-                    result.complete(null)
-                }
-                .show()
-        }
-        return result.await()
-    }
-
-    private suspend fun confirmReplaceInviteCode(activity: MainActivity): Boolean {
-        val result = CompletableDeferred<Boolean>()
-        onMainDispatcher {
-            MaterialAlertDialogBuilder(activity)
-                .setTitle(R.string.cchr_change_invite)
-                .setMessage(R.string.cchr_change_invite_confirm)
-                .setPositiveButton(android.R.string.ok) { _, _ ->
-                    result.complete(true)
-                }
-                .setNegativeButton(android.R.string.cancel) { _, _ ->
-                    result.complete(false)
-                }
-                .setOnCancelListener {
-                    result.complete(false)
-                }
-                .show()
-        }
-        return result.await()
     }
 
     private suspend fun fetchSubscriptionUrl(inviteCode: String): String {
