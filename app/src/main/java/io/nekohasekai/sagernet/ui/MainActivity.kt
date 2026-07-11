@@ -15,6 +15,8 @@ import androidx.activity.addCallback
 import androidx.annotation.IdRes
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.preference.PreferenceDataStore
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.navigation.NavigationView
@@ -149,6 +151,22 @@ class MainActivity : ThemedActivity(),
     private fun bindNavigationHeader() {
         val header = navigation.getHeaderView(0)
         header.findViewById<TextView>(R.id.nav_header_version).text = SagerNet.appVersionNameForDisplay
+
+        val basePaddingLeft = header.paddingLeft
+        val basePaddingTop = header.paddingTop
+        val basePaddingRight = header.paddingRight
+        val basePaddingBottom = header.paddingBottom
+        ViewCompat.setOnApplyWindowInsetsListener(header) { view, insets ->
+            val statusBars = insets.getInsets(WindowInsetsCompat.Type.statusBars())
+            view.setPadding(
+                basePaddingLeft,
+                basePaddingTop + statusBars.top,
+                basePaddingRight,
+                basePaddingBottom
+            )
+            insets
+        }
+        ViewCompat.requestApplyInsets(header)
     }
 
     override fun onNewIntent(intent: Intent) {
