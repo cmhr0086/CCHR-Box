@@ -25,6 +25,9 @@
     <string name="cchr_node_latency">Node latency</string>
     <string name="cchr_node_label">Node %d</string>
     <string name="cchr_node_label_single">Current node</string>
+    <string name="cchr_node_selector">Node selection</string>
+    <string name="cchr_select_node">Select node</string>
+    <string name="cchr_no_available_nodes">No available nodes</string>
     <string name="cchr_latency_untested">Untested</string>
     <string name="cchr_test_latency">Test</string>
     <string name="cchr_testing_latency">Testing…</string>
@@ -34,6 +37,13 @@
     <string name="cchr_announcement_updated_at">Updated at %s</string>
     <string name="cchr_invite_title">Invite code</string>
     <string name="cchr_invite_hint">Enter invite code</string>
+    <string name="cchr_invite_guide_title">Activate CCHR-Box</string>
+    <string name="cchr_invite_guide_message">Enter your invite code to activate the default subscription.</string>
+    <string name="cchr_invite_replace_message">Enter a new invite code. Your current subscription will be replaced only after the new code is activated successfully.</string>
+    <string name="cchr_invite_submit">Activate</string>
+    <string name="cchr_invite_activating">Activating…</string>
+    <string name="cchr_invite_activated">Activated.</string>
+    <string name="cchr_activate_required">Please enter an invite code to activate first.</string>
     <string name="cchr_change_invite">Change invite code</string>
     <string name="cchr_change_invite_confirm">This will remove the current default subscription and nodes. Continue?</string>
     <string name="cchr_invite_changed">Invite code changed.</string>

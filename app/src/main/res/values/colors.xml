@@ -289,5 +289,6 @@
     <color name="color_ng_black_primary">#2B2B2B</color>
 
     <color name="preference_simple_menu_background">#FAFAFA</color>
+    <color name="cchr_private_home_background">#F3F4F5</color>
 
 </resources>

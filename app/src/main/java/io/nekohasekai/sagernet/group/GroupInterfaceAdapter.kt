@@ -2,6 +2,7 @@ package io.nekohasekai.sagernet.group
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import io.nekohasekai.sagernet.CCHR_DEFAULT_SUBSCRIPTION_NAME
+import io.nekohasekai.sagernet.CCHR_TEMP_SUBSCRIPTION_NAME
 import io.nekohasekai.sagernet.GroupType
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.database.GroupManager
@@ -38,7 +39,8 @@ class GroupInterfaceAdapter(val context: ThemedActivity) : GroupManager.Interfac
         byUser: Boolean
     ) {
         val isPrivateDefaultSubscription =
-            group.type == GroupType.SUBSCRIPTION && group.name == CCHR_DEFAULT_SUBSCRIPTION_NAME
+            group.type == GroupType.SUBSCRIPTION &&
+                    group.name in setOf(CCHR_DEFAULT_SUBSCRIPTION_NAME, CCHR_TEMP_SUBSCRIPTION_NAME)
         if (changed == 0 && duplicate.isEmpty()) {
             if (byUser) context.snackbar(
                     context.getString(

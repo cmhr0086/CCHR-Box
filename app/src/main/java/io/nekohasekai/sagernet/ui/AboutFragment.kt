@@ -70,7 +70,7 @@ class AboutFragment : ToolbarFragment(R.layout.layout_about) {
                             MaterialAboutActionItem.Builder()
                                 .text(R.string.check_update_release)
                                 .setOnClickAction {
-                                    checkUpdate(false)
+                                    checkUpdate()
                                 }
                                 .build())
                         .apply {
@@ -107,7 +107,7 @@ class AboutFragment : ToolbarFragment(R.layout.layout_about) {
             }
         }
 
-        fun checkUpdate(checkPreview: Boolean) {
+        fun checkUpdate() {
             runOnIoDispatcher {
                 try {
                     val client = Libcore.newHttpClient().apply {
@@ -115,30 +115,22 @@ class AboutFragment : ToolbarFragment(R.layout.layout_about) {
                         trySocks5(DataStore.mixedPort)
                     }
                     val response = client.newRequest().apply {
-                        if (checkPreview) {
-                            setURL("https://api.github.com/repos/MatsuriDayo/NekoBoxForAndroid/releases/tags/preview")
-                        } else {
-                            setURL("https://api.github.com/repos/MatsuriDayo/NekoBoxForAndroid/releases/latest")
-                        }
+                        setURL("https://api.github.com/repos/cmhr0086/CCHR-Box/releases/latest")
                     }.execute()
                     val release = JSONObject(Util.getStringBox(response.contentString))
-                    val releaseName = release.getString("name")
+                    val releaseTag = release.optString("tag_name").trim()
+                    val releaseName = release.optString("name").trim().ifBlank { releaseTag }
                     val releaseUrl = release.getString("html_url")
-                    var haveUpdate = releaseName.isNotBlank()
-                    haveUpdate = if (isPreview) {
-                        if (checkPreview) {
-                            haveUpdate && releaseName != BuildConfig.PRE_VERSION_NAME
-                        } else {
-                            // User: 1.3.9 pre-1.4.0 Stable: 1.3.9 -> No update
-                            haveUpdate && releaseName != BuildConfig.VERSION_NAME
-                        }
-                    } else {
-                        // User: 1.4.0 Preview: pre-1.4.0 -> No update
-                        // User: 1.4.0 Preview: pre-1.4.1 -> Update
-                        // User: 1.4.0 Stable: 1.4.0 -> No update
-                        // User: 1.4.0 Stable: 1.4.1 -> Update
-                        haveUpdate && !releaseName.contains(BuildConfig.VERSION_NAME)
-                    }
+                    val releaseVersion = releaseTag.ifBlank { releaseName }
+                        .removePrefix("v")
+                        .removePrefix("V")
+                        .removePrefix("CCHR-Box")
+                        .trim()
+                    val currentVersion = BuildConfig.VERSION_NAME
+                        .removePrefix("v")
+                        .removePrefix("V")
+                        .trim()
+                    val haveUpdate = releaseVersion.isNotBlank() && releaseVersion != currentVersion
                     runOnMainDispatcher {
                         if (haveUpdate) {
                             val context = requireContext()

@@ -520,6 +520,9 @@
     <string name="cchr_node_latency">节点延迟</string>
     <string name="cchr_node_label">节点 %d</string>
     <string name="cchr_node_label_single">当前节点</string>
+    <string name="cchr_node_selector">节点选择</string>
+    <string name="cchr_select_node">选择节点</string>
+    <string name="cchr_no_available_nodes">暂无可用节点</string>
     <string name="cchr_latency_untested">未测试</string>
     <string name="cchr_test_latency">测速</string>
     <string name="cchr_testing_latency">测速中…</string>
@@ -529,6 +532,13 @@
     <string name="cchr_announcement_updated_at">更新于 %s</string>
     <string name="cchr_invite_title">邀请码</string>
     <string name="cchr_invite_hint">请输入邀请码</string>
+    <string name="cchr_invite_guide_title">激活 CCHR-Box</string>
+    <string name="cchr_invite_guide_message">请输入邀请码以激活默认订阅。</string>
+    <string name="cchr_invite_replace_message">请输入新的邀请码。新邀请码激活成功后才会替换当前订阅。</string>
+    <string name="cchr_invite_submit">激活</string>
+    <string name="cchr_invite_activating">激活中…</string>
+    <string name="cchr_invite_activated">已激活</string>
+    <string name="cchr_activate_required">请先输入邀请码完成激活</string>
     <string name="cchr_change_invite">更换邀请码</string>
     <string name="cchr_change_invite_confirm">这会移除当前默认订阅和节点，是否继续？</string>
     <string name="cchr_invite_changed">邀请码已更换</string>
