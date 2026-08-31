@@ -35,32 +35,12 @@
                     android:orientation="vertical"
                     android:padding="16dp">
 
-                    <LinearLayout
+                    <TextView
+                        android:id="@+id/subscription_status"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal">
-
-                        <TextView
-                            android:id="@+id/subscription_status"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="@string/cchr_subscription_overview"
-                            android:textAppearance="?attr/textAppearanceSubtitle1" />
-
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/subscription_refresh"
-                            style="@style/Widget.MaterialComponents.Button.TextButton.Icon"
-                            android:layout_width="wrap_content"
-                            android:layout_height="40dp"
-                            android:minWidth="0dp"
-                            android:paddingStart="8dp"
-                            android:paddingEnd="8dp"
-                            android:text="@string/cchr_refresh_subscription"
-                            app:icon="@drawable/ic_baseline_refresh_24" />
-
-                    </LinearLayout>
+                        android:text="@string/cchr_subscription_overview"
+                        android:textAppearance="?attr/textAppearanceSubtitle1" />
 
                     <TextView
                         android:id="@+id/subscription_usage"
@@ -196,15 +176,15 @@
                         android:layout_weight="1" />
 
                     <com.google.android.material.button.MaterialButton
-                        android:id="@+id/latency_test"
+                        android:id="@+id/subscription_refresh_action"
                         style="@style/Widget.MaterialComponents.Button.TextButton.Icon"
                         android:layout_width="wrap_content"
                         android:layout_height="40dp"
                         android:minWidth="0dp"
                         android:paddingStart="8dp"
                         android:paddingEnd="8dp"
-                        android:text="@string/cchr_test_latency"
-                        app:icon="@drawable/ic_baseline_speed_24" />
+                        android:text="@string/cchr_refresh_subscription"
+                        app:icon="@drawable/ic_baseline_refresh_24" />
 
                 </LinearLayout>
 

@@ -507,7 +507,7 @@
     <string name="cchr_subscription_exhausted">流量耗尽</string>
     <string name="cchr_subscription_update_failed">更新失败</string>
     <string name="cchr_subscription_no_nodes">订阅内没有可用节点</string>
-    <string name="cchr_refresh_subscription">刷新</string>
+    <string name="cchr_refresh_subscription">刷新订阅</string>
     <string name="cchr_refreshing">刷新中…</string>
     <string name="cchr_subscription_refresh_success">订阅已刷新</string>
     <string name="cchr_usage_used_total">已用 %1$s / 总量 %2$s</string>
@@ -522,6 +522,13 @@
     <string name="cchr_node_label_single">当前节点</string>
     <string name="cchr_node_selector">节点选择</string>
     <string name="cchr_select_node">选择节点</string>
+    <string name="cchr_node_unselected">未选择节点</string>
+    <string name="cchr_select_node_required">请先选择节点</string>
+    <string name="cchr_test_all_nodes">测速全部</string>
+    <string name="cchr_testing_all_nodes">测速中…</string>
+    <string name="cchr_confirm_selection">确认</string>
+    <string name="cchr_saving">保存中…</string>
+    <string name="cchr_node_selection_save_failed">保存所选节点失败</string>
     <string name="cchr_no_available_nodes">暂无可用节点</string>
     <string name="cchr_latency_untested">未测试</string>
     <string name="cchr_test_latency">测速</string>
@@ -547,4 +554,12 @@
     <string name="cchr_subscription_url_missing">订阅链接为空</string>
     <string name="cchr_default_subscription_removed_expired">默认订阅已到期，已自动移除。</string>
     <string name="cchr_default_subscription_removed_exhausted">默认订阅流量已耗尽，已自动移除。</string>
+    <string name="cchr_service_disabled_title">服务暂不可用</string>
+    <string name="cchr_service_disabled_message">服务暂时停用，请稍后再试。</string>
+    <string name="cchr_update_required_title">需要更新</string>
+    <string name="cchr_update_required_message">当前版本已不再受支持，请更新后继续使用。</string>
+    <string name="cchr_update_now">立即更新</string>
+    <string name="cchr_update_copy_link">复制更新链接</string>
+    <string name="cchr_update_link_copied">更新链接已复制</string>
+    <string name="cchr_update_browser_unavailable">无法打开浏览器，请复制更新链接后手动打开。</string>
 </resources>

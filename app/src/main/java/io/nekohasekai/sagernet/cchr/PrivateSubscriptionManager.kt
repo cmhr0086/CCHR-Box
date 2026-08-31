@@ -1,6 +1,16 @@
 package io.nekohasekai.sagernet.cchr
 
+import android.app.Activity
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import io.nekohasekai.sagernet.BuildConfig
+import io.nekohasekai.sagernet.CCHR_APP_CONTROL_ENDPOINT
 import io.nekohasekai.sagernet.CCHR_ANNOUNCEMENT_ENDPOINT
 import io.nekohasekai.sagernet.CCHR_DEFAULT_SUBSCRIPTION_NAME
 import io.nekohasekai.sagernet.CCHR_SUBSCRIPTION_ENDPOINT
@@ -29,6 +39,8 @@ import java.net.URL
 
 object PrivateSubscriptionManager {
 
+    private const val DEFAULT_UPDATE_URL = "https://github.com/cmhr0086/CCHR-Box/releases"
+
     var defaultUpdateFailed: Boolean = false
         private set
 
@@ -52,6 +64,28 @@ object PrivateSubscriptionManager {
         val updatedAt: String,
     )
 
+    data class AppControl(
+        val serviceEnabled: Boolean,
+        val minVersionCode: Int,
+        val updateUrl: String,
+        val updateMessage: String,
+        val disabledMessage: String,
+    )
+
+    private enum class AppAccessReason {
+        SERVICE_DISABLED,
+        UPDATE_REQUIRED,
+    }
+
+    private class AppAccessException(
+        val reason: AppAccessReason,
+        message: String,
+        val updateUrl: String = "",
+    ) : IllegalStateException(message)
+
+    private var appControlDialog: AlertDialog? = null
+    private var appControlDialogActivity: Activity? = null
+
     enum class InvalidReason {
         EXPIRED,
         EXHAUSTED,
@@ -70,6 +104,7 @@ object PrivateSubscriptionManager {
     }
 
     suspend fun ensureReadyForConnection(activity: MainActivity): Boolean {
+        if (!ensureAppAccess(activity)) return false
         val group = getDefaultSubscription()
         return if (group == null) {
             onMainDispatcher {
@@ -82,6 +117,7 @@ object PrivateSubscriptionManager {
     }
 
     suspend fun refreshDefaultSubscription(activity: MainActivity, showError: Boolean): Boolean {
+        if (!ensureAppAccess(activity)) return false
         val group = getDefaultSubscription() ?: return false
         val ok = try {
             group.name = CCHR_DEFAULT_SUBSCRIPTION_NAME
@@ -106,12 +142,12 @@ object PrivateSubscriptionManager {
                 activity.snackbar(R.string.cchr_subscription_update_failed).show()
             }
         }
-        ensureDefaultProxySelected(updatedGroup)
         return ok
     }
 
     suspend fun activateWithInviteCode(activity: MainActivity, inviteCode: String): Boolean {
         return try {
+            if (!ensureAppAccess(activity)) return false
             activateWithInviteCode(inviteCode, replaceExisting = false)
         } catch (e: Throwable) {
             onMainDispatcher {
@@ -122,6 +158,7 @@ object PrivateSubscriptionManager {
     }
 
     suspend fun activateWithInviteCode(inviteCode: String, replaceExisting: Boolean): Boolean {
+        requireAppAccess()
         val subscriptionUrl = fetchSubscriptionUrl(inviteCode)
         val oldGroups = SagerDatabase.groupDao.subscriptions()
         if (!replaceExisting && oldGroups.isNotEmpty()) return true
@@ -143,7 +180,6 @@ object PrivateSubscriptionManager {
         }
         group.name = CCHR_DEFAULT_SUBSCRIPTION_NAME
         GroupManager.updateGroup(group)
-        ensureDefaultProxySelected(group)
         if (replaceExisting && DataStore.serviceState.started) {
             SagerNet.reloadService()
         }
@@ -176,7 +212,8 @@ object PrivateSubscriptionManager {
 
     suspend fun getSelectedDefaultProxy(): ProxyEntity? {
         val group = getDefaultSubscription() ?: return null
-        return ensureDefaultProxySelected(group)
+        return SagerDatabase.proxyDao.getById(DataStore.selectedProxy)
+            ?.takeIf { it.groupId == group.id }
     }
 
     suspend fun getDefaultProxies(): List<ProxyEntity> {
@@ -267,6 +304,131 @@ object PrivateSubscriptionManager {
         }.getOrNull()
     }
 
+    suspend fun ensureAppAccess(activity: Activity): Boolean {
+        val exception = appAccessException(fetchAppControl()) ?: return true
+        if (DataStore.serviceState.started) {
+            SagerNet.stopService()
+        }
+        showAppAccessDialog(activity, exception)
+        return false
+    }
+
+    private suspend fun requireAppAccess() {
+        appAccessException(fetchAppControl())?.let { throw it }
+    }
+
+    private fun appAccessException(control: AppControl?): AppAccessException? {
+        if (control == null) return null
+        if (!control.serviceEnabled) {
+            return AppAccessException(
+                AppAccessReason.SERVICE_DISABLED,
+                control.disabledMessage.ifBlank { app.getString(R.string.cchr_service_disabled_message) },
+            )
+        }
+        if (control.minVersionCode > BuildConfig.VERSION_CODE) {
+            return AppAccessException(
+                AppAccessReason.UPDATE_REQUIRED,
+                control.updateMessage.ifBlank { app.getString(R.string.cchr_update_required_message) },
+                control.updateUrl.takeIf(::isHttpsUrl) ?: DEFAULT_UPDATE_URL,
+            )
+        }
+        return null
+    }
+
+    private suspend fun fetchAppControl(): AppControl? {
+        if (CCHR_APP_CONTROL_ENDPOINT.isBlank()) return null
+        return runCatching {
+            onIoDispatcher {
+                val connection = (URL(CCHR_APP_CONTROL_ENDPOINT).openConnection() as HttpURLConnection).apply {
+                    requestMethod = "GET"
+                    connectTimeout = 8000
+                    readTimeout = 8000
+                    setRequestProperty("Accept", "application/json")
+                    setRequestProperty("Cache-Control", "no-cache")
+                }
+                try {
+                    if (connection.responseCode !in 200..299) return@onIoDispatcher null
+                    val json = JSONObject(connection.inputStream.bufferedReader().readText())
+                    AppControl(
+                        serviceEnabled = json.optBoolean("serviceEnabled", true),
+                        minVersionCode = json.optInt("minVersionCode", 0).coerceAtLeast(0),
+                        updateUrl = json.optString("updateUrl").trim(),
+                        updateMessage = json.optString("updateMessage").trim(),
+                        disabledMessage = json.optString("disabledMessage").trim(),
+                    )
+                } finally {
+                    connection.disconnect()
+                }
+            }
+        }.getOrNull()
+    }
+
+    private suspend fun showAppAccessDialog(activity: Activity, exception: AppAccessException) {
+        onMainDispatcher {
+            if (activity.isFinishing) return@onMainDispatcher
+            if (appControlDialog?.isShowing == true && appControlDialogActivity === activity) {
+                return@onMainDispatcher
+            }
+            appControlDialog?.dismiss()
+            val builder = MaterialAlertDialogBuilder(activity)
+                .setCancelable(true)
+                .setMessage(exception.message)
+            when (exception.reason) {
+                AppAccessReason.SERVICE_DISABLED -> builder
+                    .setTitle(R.string.cchr_service_disabled_title)
+                    .setPositiveButton(android.R.string.ok, null)
+
+                AppAccessReason.UPDATE_REQUIRED -> {
+                    builder.setTitle(R.string.cchr_update_required_title)
+                    builder.setNeutralButton(R.string.cchr_update_copy_link) { _, _ ->
+                        val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Update URL", exception.updateUrl))
+                        Toast.makeText(activity, R.string.cchr_update_link_copied, Toast.LENGTH_SHORT).show()
+                    }
+                    builder.setPositiveButton(R.string.cchr_update_now) { _, _ ->
+                        if (!openUpdatePage(activity, exception.updateUrl)) {
+                            Toast.makeText(activity, R.string.cchr_update_browser_unavailable, Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }
+            }
+            builder.create().apply {
+                setCanceledOnTouchOutside(true)
+                appControlDialog = this
+                appControlDialogActivity = activity
+                setOnDismissListener {
+                    if (appControlDialog === this) {
+                        appControlDialog = null
+                        appControlDialogActivity = null
+                    }
+                }
+                show()
+                if (exception.reason == AppAccessReason.UPDATE_REQUIRED) {
+                    insetUpdateButtons(activity)
+                }
+            }
+        }
+    }
+
+    private fun AlertDialog.insetUpdateButtons(activity: Activity) {
+        val offset = 8f * activity.resources.displayMetrics.density
+        getButton(AlertDialog.BUTTON_NEUTRAL)?.translationX = offset
+        getButton(AlertDialog.BUTTON_POSITIVE)?.translationX = -offset
+    }
+
+    private fun isHttpsUrl(value: String): Boolean = runCatching {
+        URL(value).protocol == "https:"
+    }.getOrDefault(false)
+
+    private fun openUpdatePage(activity: Activity, url: String): Boolean {
+        val viewIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+        return runCatching {
+            if (viewIntent.resolveActivity(activity.packageManager) == null) return false
+            activity.startActivity(Intent.createChooser(viewIntent, null))
+            true
+        }.getOrDefault(false)
+    }
+
     private suspend fun ensureDefaultSubscriptionConnectable(
         activity: MainActivity,
         group: ProxyGroup,
@@ -284,37 +446,23 @@ object PrivateSubscriptionManager {
         allowRefresh: Boolean,
     ): Boolean {
         val group = getDefaultSubscription() ?: return false
-        if (ensureDefaultProxySelected(group) != null) return true
+        if (getSelectedDefaultProxy() != null) return true
 
-        if (allowRefresh) {
+        var proxies = SagerDatabase.proxyDao.getByGroup(group.id)
+
+        if (proxies.isEmpty() && allowRefresh) {
             refreshDefaultSubscription(activity, showError = true)
             val refreshedGroup = getDefaultSubscription() ?: return false
-            if (ensureDefaultProxySelected(refreshedGroup) != null) return true
+            proxies = SagerDatabase.proxyDao.getByGroup(refreshedGroup.id)
         }
 
         onMainDispatcher {
-            activity.snackbar(R.string.cchr_subscription_no_nodes).show()
+            activity.snackbar(
+                if (proxies.isEmpty()) R.string.cchr_subscription_no_nodes
+                else R.string.cchr_select_node_required
+            ).show()
         }
         return false
-    }
-
-    private suspend fun ensureDefaultProxySelected(group: ProxyGroup): ProxyEntity? {
-        val proxies = SagerDatabase.proxyDao.getByGroup(group.id)
-        if (proxies.isEmpty()) return null
-
-        val selectedProxy = SagerDatabase.proxyDao.getById(DataStore.selectedProxy)
-        val target = selectedProxy?.takeIf { it.groupId == group.id } ?: proxies.first()
-        val previous = DataStore.selectedProxy
-
-        DataStore.selectedGroup = group.id
-        DataStore.selectedProxy = target.id
-
-        if (previous != target.id) {
-            ProfileManager.postUpdate(previous, true)
-            ProfileManager.postUpdate(target.id, true)
-            GroupManager.postUpdate(group.id)
-        }
-        return target
     }
 
     suspend fun validateDefaultSubscription(group: ProxyGroup): InvalidReason? {
@@ -367,7 +515,10 @@ object PrivateSubscriptionManager {
                 setRequestProperty("Accept", "application/json")
             }
             try {
-                val body = JSONObject().put("inviteCode", inviteCode).toString()
+                val body = JSONObject()
+                    .put("inviteCode", inviteCode)
+                    .put("versionCode", BuildConfig.VERSION_CODE)
+                    .toString()
                 OutputStreamWriter(connection.outputStream, Charsets.UTF_8).use {
                     it.write(body)
                 }

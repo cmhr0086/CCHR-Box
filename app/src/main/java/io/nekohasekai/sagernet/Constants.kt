@@ -5,6 +5,7 @@ const val CCHR_DEFAULT_SUBSCRIPTION_NAME = "默认订阅"
 const val CCHR_TEMP_SUBSCRIPTION_NAME = "CCHR-Box Activation"
 const val CCHR_SUBSCRIPTION_ENDPOINT = "https://service.example.invalid"
 const val CCHR_ANNOUNCEMENT_ENDPOINT = "https://service.example.invalid/announcement"
+const val CCHR_APP_CONTROL_ENDPOINT = "https://service.example.invalid/app-control"
 
 object Key {
 

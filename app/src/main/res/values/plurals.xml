@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <plurals name="cchr_expire_days_remaining">
-        <item quantity="one">%d day remaining</item>
-        <item quantity="other">%d days remaining</item>
+        <item quantity="one">%d day remaining / 30 days total</item>
+        <item quantity="other">%d days remaining / 30 days total</item>
     </plurals>
 </resources>

@@ -53,6 +53,9 @@ class InviteCodeActivity : ThemedActivity() {
 
         runOnDefaultDispatcher {
             val result = runCatching {
+                if (!PrivateSubscriptionManager.ensureAppAccess(this@InviteCodeActivity)) {
+                    return@runCatching null
+                }
                 PrivateSubscriptionManager.activateWithInviteCode(inviteCode, replaceExisting)
             }
             onMainDispatcher {
@@ -61,7 +64,10 @@ class InviteCodeActivity : ThemedActivity() {
                 binding.inviteSubmit.setText(R.string.cchr_invite_submit)
 
                 val error = result.exceptionOrNull()
-                if (result.getOrDefault(false)) {
+                if (result.getOrNull() == null && result.exceptionOrNull() == null) {
+                    return@onMainDispatcher
+                }
+                if (result.getOrNull() == true) {
                     snackbar(
                         if (replaceExisting) R.string.cchr_invite_changed
                         else R.string.cchr_invite_activated

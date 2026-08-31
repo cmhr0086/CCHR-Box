@@ -12,7 +12,7 @@
     <string name="cchr_subscription_exhausted">Traffic exhausted</string>
     <string name="cchr_subscription_update_failed">Update failed</string>
     <string name="cchr_subscription_no_nodes">No available nodes in the subscription.</string>
-    <string name="cchr_refresh_subscription">Refresh</string>
+    <string name="cchr_refresh_subscription">Refresh subscription</string>
     <string name="cchr_refreshing">Refreshing…</string>
     <string name="cchr_subscription_refresh_success">Subscription refreshed.</string>
     <string name="cchr_usage_used_total">%1$s used / %2$s total</string>
@@ -27,6 +27,13 @@
     <string name="cchr_node_label_single">Current node</string>
     <string name="cchr_node_selector">Node selection</string>
     <string name="cchr_select_node">Select node</string>
+    <string name="cchr_node_unselected">No node selected</string>
+    <string name="cchr_select_node_required">Select a node before connecting.</string>
+    <string name="cchr_test_all_nodes">Test all</string>
+    <string name="cchr_testing_all_nodes">Testing…</string>
+    <string name="cchr_confirm_selection">Confirm</string>
+    <string name="cchr_saving">Saving…</string>
+    <string name="cchr_node_selection_save_failed">Unable to save the selected node.</string>
     <string name="cchr_no_available_nodes">No available nodes</string>
     <string name="cchr_latency_untested">Untested</string>
     <string name="cchr_test_latency">Test</string>
@@ -52,6 +59,14 @@
     <string name="cchr_subscription_url_missing">Subscription URL is missing.</string>
     <string name="cchr_default_subscription_removed_expired">Default subscription has expired and was removed.</string>
     <string name="cchr_default_subscription_removed_exhausted">Default subscription traffic is exhausted and was removed.</string>
+    <string name="cchr_service_disabled_title">Service unavailable</string>
+    <string name="cchr_service_disabled_message">The service is temporarily unavailable. Please try again later.</string>
+    <string name="cchr_update_required_title">Update required</string>
+    <string name="cchr_update_required_message">This version is no longer supported. Please update to continue.</string>
+    <string name="cchr_update_now">Update now</string>
+    <string name="cchr_update_copy_link">Copy update link</string>
+    <string name="cchr_update_link_copied">Update link copied.</string>
+    <string name="cchr_update_browser_unavailable">No browser is available to open the update link.</string>
     <string name="project">Project</string>
     <string name="github">Source code</string>
     <string name="telegram">Telegram update channel</string>
