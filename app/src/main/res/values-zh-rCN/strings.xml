@@ -539,7 +539,7 @@
     <string name="cchr_announcement_updated_at">更新于 %s</string>
     <string name="cchr_invite_title">邀请码</string>
     <string name="cchr_invite_hint">请输入邀请码</string>
-    <string name="cchr_invite_guide_title">激活 VMNOX BOX</string>
+    <string name="cchr_invite_guide_title">激活 VMNOX</string>
     <string name="cchr_invite_guide_message">请输入邀请码以激活默认订阅。</string>
     <string name="cchr_invite_replace_message">请输入新的邀请码。新邀请码激活成功后才会替换当前订阅。</string>
     <string name="cchr_invite_submit">激活</string>

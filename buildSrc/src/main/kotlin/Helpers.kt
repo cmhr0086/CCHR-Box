@@ -197,10 +197,10 @@ fun Project.setupApp() {
                 outputFileName = if (isPreview) {
                     outputFileName.replace(
                         project.name,
-                        "VMNOX BOX-" + requireMetadata().getProperty("PRE_VERSION_NAME")
+                        "VMNOX-" + requireMetadata().getProperty("PRE_VERSION_NAME")
                     ).replace("-preview", "")
                 } else {
-                    outputFileName.replace(project.name, "VMNOX BOX-$versionName")
+                    outputFileName.replace(project.name, "VMNOX-$versionName")
                         .replace("-release", "")
                         .replace("-oss", "")
                 }
