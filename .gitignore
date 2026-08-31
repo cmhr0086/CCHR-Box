@@ -18,3 +18,8 @@ jniLibs/
 
 # submodules
 /external
+
+# Local-only release material and private services
+/release.keystore
+/sub-json/
+/BUILD.MD
