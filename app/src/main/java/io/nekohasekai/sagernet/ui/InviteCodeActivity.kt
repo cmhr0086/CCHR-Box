@@ -36,9 +36,15 @@ class InviteCodeActivity : ThemedActivity() {
             else R.string.cchr_invite_guide_message
         )
         binding.inviteSubmit.setOnClickListener { submitInviteCode() }
+        if (!PrivateSubscriptionManager.subscriptionEnabled) {
+            binding.inviteInput.isEnabled = false
+            binding.inviteSubmit.isEnabled = false
+            binding.inviteMessage.setText(R.string.cchr_subscription_service_not_configured)
+        }
     }
 
     private fun submitInviteCode() {
+        if (!PrivateSubscriptionManager.subscriptionEnabled) return
         if (submitting) return
         val inviteCode = binding.inviteInput.text?.toString()?.trim().orEmpty()
         if (inviteCode.isBlank()) {

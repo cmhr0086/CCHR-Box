@@ -3,9 +3,9 @@ package io.nekohasekai.sagernet
 const val CONNECTION_TEST_URL = "http://cp.cloudflare.com/"
 const val CCHR_DEFAULT_SUBSCRIPTION_NAME = "默认订阅"
 const val CCHR_TEMP_SUBSCRIPTION_NAME = "CCHR-Box Activation"
-const val CCHR_SUBSCRIPTION_ENDPOINT = "https://service.example.invalid"
-const val CCHR_ANNOUNCEMENT_ENDPOINT = "https://service.example.invalid/announcement"
-const val CCHR_APP_CONTROL_ENDPOINT = "https://service.example.invalid/app-control"
+val CCHR_SUBSCRIPTION_ENDPOINT: String get() = BuildConfig.CCHR_SUBSCRIPTION_ENDPOINT
+val CCHR_ANNOUNCEMENT_ENDPOINT: String get() = BuildConfig.CCHR_ANNOUNCEMENT_ENDPOINT
+val CCHR_APP_CONTROL_ENDPOINT: String get() = BuildConfig.CCHR_APP_CONTROL_ENDPOINT
 
 object Key {
 

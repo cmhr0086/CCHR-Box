@@ -9,6 +9,7 @@ import androidx.work.PeriodicWorkRequest
 import androidx.work.WorkerParameters
 import androidx.work.multiprocess.RemoteWorkManager
 import io.nekohasekai.sagernet.R
+import io.nekohasekai.sagernet.cchr.PrivateSubscriptionManager
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.SagerDatabase
 import io.nekohasekai.sagernet.group.GroupUpdater
@@ -22,6 +23,7 @@ object SubscriptionUpdater {
 
     suspend fun reconfigureUpdater() {
         RemoteWorkManager.getInstance(app).cancelUniqueWork(WORK_NAME)
+        if (!PrivateSubscriptionManager.subscriptionEnabled) return
 
         val subscriptions = SagerDatabase.groupDao.subscriptions()
             .filter { it.subscription!!.autoUpdate }
@@ -62,6 +64,8 @@ object SubscriptionUpdater {
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
 
         override suspend fun doWork(): Result {
+            // Old scheduled work may run before the UI has had a chance to cancel it.
+            if (!PrivateSubscriptionManager.subscriptionEnabled) return Result.success()
             var subscriptions =
                 SagerDatabase.groupDao.subscriptions().filter { it.subscription!!.autoUpdate }
             if (!DataStore.serviceState.connected) {

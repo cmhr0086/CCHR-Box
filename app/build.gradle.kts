@@ -1,5 +1,7 @@
 @file:Suppress("UnstableApiUsage")
 
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("kotlin-android")
@@ -9,7 +11,24 @@ plugins {
 
 setupApp()
 
+// Read the actual local file independently of legacy signing's LOCAL_PROPERTIES variable.
+val endpointProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+
 android {
+    defaultConfig {
+        EndpointConfiguration.names.forEach { name ->
+            val endpoint = EndpointConfiguration.resolve(
+                name,
+                providers.gradleProperty(name).orNull,
+                providers.environmentVariable(name).orNull,
+                endpointProperties.getProperty(name),
+            )
+            buildConfigField("String", name, EndpointConfiguration.javaString(endpoint))
+        }
+    }
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
     }
@@ -39,6 +58,8 @@ android {
 }
 
 dependencies {
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
 
     implementation(fileTree("libs"))
 

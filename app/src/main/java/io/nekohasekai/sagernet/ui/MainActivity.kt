@@ -8,8 +8,10 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.RemoteException
+import android.text.InputType
 import android.view.KeyEvent
 import android.view.MenuItem
+import android.widget.EditText
 import android.widget.TextView
 import androidx.activity.addCallback
 import androidx.annotation.IdRes
@@ -32,11 +34,13 @@ import io.nekohasekai.sagernet.aidl.SpeedDisplayData
 import io.nekohasekai.sagernet.aidl.TrafficData
 import io.nekohasekai.sagernet.bg.BaseService
 import io.nekohasekai.sagernet.bg.SagerConnection
+import io.nekohasekai.sagernet.bg.SubscriptionUpdater
 import io.nekohasekai.sagernet.cchr.PrivateSubscriptionManager
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.GroupManager
 import io.nekohasekai.sagernet.database.ProfileManager
 import io.nekohasekai.sagernet.database.ProxyGroup
+import io.nekohasekai.sagernet.database.SagerDatabase
 import io.nekohasekai.sagernet.database.SubscriptionBean
 import io.nekohasekai.sagernet.database.preference.OnPreferenceDataStoreChangeListener
 import io.nekohasekai.sagernet.databinding.LayoutMainBinding
@@ -114,6 +118,7 @@ class MainActivity : ThemedActivity(),
         DataStore.configurationStore.registerChangeListener(this)
         GroupManager.userInterface = GroupInterfaceAdapter(this)
         runOnDefaultDispatcher {
+            SubscriptionUpdater.reconfigureUpdater()
             PrivateSubscriptionManager.refreshDefaultSubscription(this@MainActivity, showError = false)
         }
 
@@ -150,6 +155,7 @@ class MainActivity : ThemedActivity(),
     }
 
     private fun launchInviteGuideIfNeeded() {
+        if (!PrivateSubscriptionManager.subscriptionEnabled) return
         if (inviteGuideLaunched) return
         runOnDefaultDispatcher {
             val needsInvite = PrivateSubscriptionManager.getDefaultSubscription() == null
@@ -203,6 +209,62 @@ class MainActivity : ThemedActivity(),
         return connection.service!!.urlTest()
     }
 
+    fun showImportConfiguration() {
+        val input = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
+            setHint(R.string.cchr_import_configuration_hint)
+            maxLines = 4
+        }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.cchr_import_configuration)
+            .setView(input)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val value = input.text.toString().trim()
+                val uri = Uri.parse(value)
+                if (value.isBlank() || uri.scheme.isNullOrBlank()) {
+                    snackbar(R.string.cchr_import_configuration_hint).show()
+                    return@setPositiveButton
+                }
+                runOnDefaultDispatcher {
+                    try {
+                        when {
+                            uri.scheme in setOf("https", "http") -> {
+                                if (uri.host.isNullOrBlank()) {
+                                    onMainDispatcher { snackbar(R.string.cchr_import_configuration_hint).show() }
+                                    return@runOnDefaultDispatcher
+                                }
+                                // HTTP(S) is also a supported node protocol. Let the user
+                                // choose its meaning instead of misclassifying proxy URLs.
+                                onMainDispatcher {
+                                    MaterialAlertDialogBuilder(this@MainActivity)
+                                        .setTitle(R.string.cchr_import_configuration)
+                                        .setItems(arrayOf(getString(R.string.subscription_import), getString(R.string.profile_import))) { _, choice ->
+                                            runOnDefaultDispatcher {
+                                                if (choice == 0) {
+                                                    importSubscription(Uri.Builder().scheme("sn").authority("subscription")
+                                                        .appendQueryParameter("url", value).build())
+                                                } else {
+                                                    importProfile(uri)
+                                                }
+                                            }
+                                        }
+                                        .setNegativeButton(android.R.string.cancel, null)
+                                        .show()
+                                }
+                            }
+                            uri.scheme == "sn" && uri.host == "subscription" || uri.scheme == "clash" ->
+                                importSubscription(uri)
+                            else -> importProfile(uri)
+                        }
+                    } catch (_: Exception) {
+                        onMainDispatcher { snackbar(R.string.cchr_import_configuration_failed).show() }
+                    }
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
     suspend fun importSubscription(uri: Uri) {
         val group: ProxyGroup
 
@@ -235,7 +297,11 @@ class MainActivity : ThemedActivity(),
         ?: group.subscription?.token
         if (name.isNullOrBlank()) return
 
-        group.name = CCHR_DEFAULT_SUBSCRIPTION_NAME
+        if (PrivateSubscriptionManager.subscriptionEnabled) {
+            group.name = CCHR_DEFAULT_SUBSCRIPTION_NAME
+        } else if (group.name.isNullOrBlank()) {
+            group.name = getString(R.string.subscription)
+        }
 
         onMainDispatcher {
 
@@ -285,9 +351,15 @@ class MainActivity : ThemedActivity(),
     }
 
     private suspend fun finishImportProfile(profile: AbstractBean) {
-        val targetId = DataStore.selectedGroupForImport()
+        val targetId = if (PrivateSubscriptionManager.subscriptionEnabled) {
+            DataStore.selectedGroupForImport()
+        } else {
+            SagerDatabase.groupDao.allGroups().firstOrNull { it.type == GroupType.BASIC }?.id
+                ?: GroupManager.createGroup(ProxyGroup(ungrouped = true)).id
+        }
 
         ProfileManager.createProfile(targetId, profile)
+        if (!PrivateSubscriptionManager.subscriptionEnabled) GroupManager.postUpdate(targetId)
 
         onMainDispatcher {
             displayFragmentWithId(R.id.nav_configuration)

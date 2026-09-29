@@ -1,0 +1,8 @@
+# Copy these keys into your ignored local.properties. Preserve your sdk.dir/signing settings.
+# Priority: Gradle -P property > environment variable > local.properties > empty.
+# An explicit empty value overrides lower-priority values.
+# Each optional service is independent. Use your own HTTPS endpoint when needed.
+# Example only: https://service.example.invalid/path
+CCHR_SUBSCRIPTION_ENDPOINT=
+CCHR_ANNOUNCEMENT_ENDPOINT=
+CCHR_APP_CONTROL_ENDPOINT=

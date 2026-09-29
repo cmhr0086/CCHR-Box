@@ -39,6 +39,8 @@ import java.net.URL
 
 object PrivateSubscriptionManager {
 
+    val subscriptionEnabled: Boolean get() = CCHR_SUBSCRIPTION_ENDPOINT.isNotBlank()
+
     private const val DEFAULT_UPDATE_URL = "https://github.com/cmhr0086/CCHR-Box/releases"
 
     var defaultUpdateFailed: Boolean = false
@@ -92,6 +94,16 @@ object PrivateSubscriptionManager {
     }
 
     suspend fun getDefaultSubscription(): ProxyGroup? {
+        if (!subscriptionEnabled) {
+            val selected = SagerDatabase.proxyDao.getById(DataStore.selectedProxy)
+            if (selected != null) {
+                return SagerDatabase.groupDao.getById(selected.groupId)
+                    ?.takeIf { it.type == GroupType.SUBSCRIPTION }
+            }
+            return SagerDatabase.groupDao.getById(DataStore.selectedGroup)
+                ?.takeIf { it.type == GroupType.SUBSCRIPTION }
+                ?: SagerDatabase.groupDao.subscriptions().firstOrNull()
+        }
         val groups = SagerDatabase.groupDao.subscriptions()
         val group = groups.firstOrNull { it.name == CCHR_DEFAULT_SUBSCRIPTION_NAME }
             ?: groups.firstOrNull()
@@ -105,6 +117,16 @@ object PrivateSubscriptionManager {
 
     suspend fun ensureReadyForConnection(activity: MainActivity): Boolean {
         if (!ensureAppAccess(activity)) return false
+        if (!subscriptionEnabled) {
+            if (getSelectedDefaultProxy() != null) return true
+            onMainDispatcher {
+                activity.snackbar(
+                    if (getDefaultProxies().isEmpty()) R.string.cchr_import_required
+                    else R.string.cchr_select_node_required
+                ).show()
+            }
+            return false
+        }
         val group = getDefaultSubscription()
         return if (group == null) {
             onMainDispatcher {
@@ -116,11 +138,16 @@ object PrivateSubscriptionManager {
         }
     }
 
-    suspend fun refreshDefaultSubscription(activity: MainActivity, showError: Boolean): Boolean {
+    suspend fun refreshDefaultSubscription(
+        activity: MainActivity,
+        showError: Boolean,
+        byUser: Boolean = false,
+    ): Boolean {
         if (!ensureAppAccess(activity)) return false
+        if (!subscriptionEnabled && !byUser) return false
         val group = getDefaultSubscription() ?: return false
         val ok = try {
-            group.name = CCHR_DEFAULT_SUBSCRIPTION_NAME
+            if (subscriptionEnabled) group.name = CCHR_DEFAULT_SUBSCRIPTION_NAME
             GroupUpdater.executeUpdate(group, false)
         } catch (e: Throwable) {
             if (showError) {
@@ -147,6 +174,7 @@ object PrivateSubscriptionManager {
 
     suspend fun activateWithInviteCode(activity: MainActivity, inviteCode: String): Boolean {
         return try {
+            requireSubscriptionService()
             if (!ensureAppAccess(activity)) return false
             activateWithInviteCode(inviteCode, replaceExisting = false)
         } catch (e: Throwable) {
@@ -158,6 +186,7 @@ object PrivateSubscriptionManager {
     }
 
     suspend fun activateWithInviteCode(inviteCode: String, replaceExisting: Boolean): Boolean {
+        requireSubscriptionService()
         requireAppAccess()
         val subscriptionUrl = fetchSubscriptionUrl(inviteCode)
         val oldGroups = SagerDatabase.groupDao.subscriptions()
@@ -211,30 +240,30 @@ object PrivateSubscriptionManager {
     }
 
     suspend fun getSelectedDefaultProxy(): ProxyEntity? {
+        if (!subscriptionEnabled) return SagerDatabase.proxyDao.getById(DataStore.selectedProxy)
         val group = getDefaultSubscription() ?: return null
         return SagerDatabase.proxyDao.getById(DataStore.selectedProxy)
             ?.takeIf { it.groupId == group.id }
     }
 
     suspend fun getDefaultProxies(): List<ProxyEntity> {
+        if (!subscriptionEnabled) return SagerDatabase.proxyDao.getAll()
+            .sortedWith(compareBy<ProxyEntity> { it.groupId }.thenBy { it.userOrder })
         val group = getDefaultSubscription() ?: return emptyList()
         return SagerDatabase.proxyDao.getByGroup(group.id)
     }
 
     suspend fun selectDefaultProxy(profileId: Long): Boolean {
-        val group = getDefaultSubscription() ?: return false
-        val target = SagerDatabase.proxyDao.getById(profileId)
-            ?.takeIf { it.groupId == group.id }
-            ?: return false
+        val target = getEligibleProxy(profileId) ?: return false
         val previous = DataStore.selectedProxy
 
-        DataStore.selectedGroup = group.id
+        DataStore.selectedGroup = target.groupId
         DataStore.selectedProxy = target.id
 
         if (previous != target.id) {
             ProfileManager.postUpdate(previous, true)
             ProfileManager.postUpdate(target.id, true)
-            GroupManager.postUpdate(group.id)
+            GroupManager.postUpdate(target.groupId)
             if (DataStore.serviceState.started) {
                 SagerNet.reloadService()
             }
@@ -243,10 +272,7 @@ object PrivateSubscriptionManager {
     }
 
     suspend fun recordDefaultProxyLatency(profileId: Long, ping: Int, error: String?): ProxyEntity? {
-        val group = getDefaultSubscription() ?: return null
-        val profile = SagerDatabase.proxyDao.getById(profileId)
-            ?.takeIf { it.groupId == group.id }
-            ?: return null
+        val profile = getEligibleProxy(profileId) ?: return null
 
         if (error == null && ping > 0) {
             profile.status = 1
@@ -259,14 +285,12 @@ object PrivateSubscriptionManager {
         }
         SagerDatabase.proxyDao.updateProxy(profile)
         ProfileManager.postUpdate(profile.id, true)
-        GroupManager.postUpdate(group.id)
+        GroupManager.postUpdate(profile.groupId)
         return profile
     }
 
     suspend fun testDefaultProxyLatency(profileId: Long) {
-        val group = getDefaultSubscription() ?: return
-        val profile = SagerDatabase.proxyDao.getById(profileId) ?: return
-        if (profile.groupId != group.id) return
+        val profile = getEligibleProxy(profileId) ?: return
 
         try {
             recordDefaultProxyLatency(profile.id, UrlTest().doTest(profile), null)
@@ -275,11 +299,11 @@ object PrivateSubscriptionManager {
         }
     }
 
-    suspend fun fetchAnnouncement(): Announcement? {
-        if (CCHR_ANNOUNCEMENT_ENDPOINT.isBlank()) return null
+    internal suspend fun fetchAnnouncement(endpoint: String = CCHR_ANNOUNCEMENT_ENDPOINT): Announcement? {
+        if (endpoint.isBlank()) return null
         return runCatching {
             onIoDispatcher {
-                val connection = (URL(CCHR_ANNOUNCEMENT_ENDPOINT).openConnection() as HttpURLConnection).apply {
+                val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
                     requestMethod = "GET"
                     connectTimeout = 8000
                     readTimeout = 8000
@@ -335,11 +359,11 @@ object PrivateSubscriptionManager {
         return null
     }
 
-    private suspend fun fetchAppControl(): AppControl? {
-        if (CCHR_APP_CONTROL_ENDPOINT.isBlank()) return null
+    internal suspend fun fetchAppControl(endpoint: String = CCHR_APP_CONTROL_ENDPOINT): AppControl? {
+        if (endpoint.isBlank()) return null
         return runCatching {
             onIoDispatcher {
-                val connection = (URL(CCHR_APP_CONTROL_ENDPOINT).openConnection() as HttpURLConnection).apply {
+                val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
                     requestMethod = "GET"
                     connectTimeout = 8000
                     readTimeout = 8000
@@ -466,6 +490,7 @@ object PrivateSubscriptionManager {
     }
 
     suspend fun validateDefaultSubscription(group: ProxyGroup): InvalidReason? {
+        if (!subscriptionEnabled) return null
         val usage = parseUsageInfo(group.subscription?.subscriptionUserinfo)
         return when {
             usage.isExpired -> {
@@ -502,11 +527,30 @@ object PrivateSubscriptionManager {
     }
 
     private suspend fun fetchSubscriptionUrl(inviteCode: String): String {
+        requireSubscriptionService()
+        return checkNotNull(requestSubscriptionUrl(inviteCode))
+    }
+
+    private fun requireSubscriptionService() {
         if (CCHR_SUBSCRIPTION_ENDPOINT.isBlank()) {
             error(app.getString(R.string.cchr_subscription_service_not_configured))
         }
+    }
+
+    private suspend fun getEligibleProxy(profileId: Long): ProxyEntity? {
+        val profile = SagerDatabase.proxyDao.getById(profileId) ?: return null
+        if (!subscriptionEnabled) return profile
+        val group = getDefaultSubscription() ?: return null
+        return profile.takeIf { it.groupId == group.id }
+    }
+
+    internal suspend fun requestSubscriptionUrl(
+        inviteCode: String,
+        endpoint: String = CCHR_SUBSCRIPTION_ENDPOINT,
+    ): String? {
+        if (endpoint.isBlank()) return null
         return onIoDispatcher {
-            val connection = (URL(CCHR_SUBSCRIPTION_ENDPOINT).openConnection() as HttpURLConnection).apply {
+            val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 connectTimeout = 15000
                 readTimeout = 15000

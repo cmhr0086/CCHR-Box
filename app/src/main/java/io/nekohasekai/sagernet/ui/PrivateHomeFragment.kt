@@ -46,6 +46,9 @@ class PrivateHomeFragment : ToolbarFragment(R.layout.layout_private_home), Group
         binding?.nodeSelectorCard?.setOnClickListener { openNodeSelector() }
         binding?.subscriptionRefreshAction?.setOnClickListener { refreshSubscription() }
         binding?.changeInvite?.setOnClickListener { changeInviteCode() }
+        if (!PrivateSubscriptionManager.subscriptionEnabled) {
+            binding?.changeInvite?.setText(R.string.cchr_import_configuration)
+        }
         reload()
         reloadAnnouncement()
     }
@@ -82,12 +85,16 @@ class PrivateHomeFragment : ToolbarFragment(R.layout.layout_private_home), Group
             R.string.cchr_refreshing
         )
         if (group == null || group.type != GroupType.SUBSCRIPTION) {
-            setSubscriptionStatus(R.string.cchr_subscription_not_activated)
+            setSubscriptionStatus(
+                if (PrivateSubscriptionManager.subscriptionEnabled) R.string.cchr_subscription_not_activated
+                else R.string.cchr_no_subscription
+            )
             binding.subscriptionUsage.text = getString(R.string.cchr_usage_used_only, 0L.toBytesString())
             binding.usageProgress.progress = 0
             binding.subscriptionExpire.setText(R.string.cchr_expire_unknown)
             binding.expireProgress.progress = 0
-            renderNodeSelector(null, emptyList())
+            renderNodeSelector(proxy, proxies)
+            if (!PrivateSubscriptionManager.subscriptionEnabled) binding.subscriptionRefreshAction.isEnabled = false
             return
         }
 
@@ -186,7 +193,7 @@ class PrivateHomeFragment : ToolbarFragment(R.layout.layout_private_home), Group
         refreshingSubscription = true
         reload()
         runOnDefaultDispatcher {
-            val ok = PrivateSubscriptionManager.refreshDefaultSubscription(activity, showError = false)
+            val ok = PrivateSubscriptionManager.refreshDefaultSubscription(activity, showError = false, byUser = true)
             onMainDispatcher {
                 refreshingSubscription = false
                 activity.snackbar(
@@ -201,6 +208,10 @@ class PrivateHomeFragment : ToolbarFragment(R.layout.layout_private_home), Group
 
     private fun changeInviteCode() {
         val activity = activity as? MainActivity ?: return
+        if (!PrivateSubscriptionManager.subscriptionEnabled) {
+            activity.showImportConfiguration()
+            return
+        }
         MaterialAlertDialogBuilder(requireContext())
             .setTitle(R.string.cchr_change_invite)
             .setMessage(R.string.cchr_change_invite_confirm)

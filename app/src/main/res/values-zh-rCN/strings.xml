@@ -562,4 +562,10 @@
     <string name="cchr_update_copy_link">复制更新链接</string>
     <string name="cchr_update_link_copied">更新链接已复制</string>
     <string name="cchr_update_browser_unavailable">无法打开浏览器，请复制更新链接后手动打开。</string>
+
+    <string name="cchr_import_configuration">导入配置</string>
+    <string name="cchr_import_configuration_hint">粘贴自有订阅地址或节点分享链接</string>
+    <string name="cchr_import_configuration_failed">无法导入此配置</string>
+    <string name="cchr_import_required">请先导入自有配置并选择节点</string>
+    <string name="cchr_no_subscription">当前配置没有订阅</string>
 </resources>
