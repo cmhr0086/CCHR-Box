@@ -18,6 +18,7 @@
     <string name="cchr_usage_used_total">%1$s used / %2$s total</string>
     <string name="cchr_usage_used_only">%s used</string>
     <string name="cchr_expire_unknown">Expiration unknown</string>
+    <string name="cchr_expire_unlimited">No expiration</string>
     <string name="cchr_expired">Expired</string>
     <string name="cchr_subscription_nodes">%d nodes</string>
     <string name="cchr_subscription_updated_at">Updated at %s</string>
@@ -52,11 +53,13 @@
     <string name="cchr_invite_activated">Activated.</string>
     <string name="cchr_activate_required">Please enter an invite code to activate first.</string>
     <string name="cchr_change_invite">Change invite code</string>
-    <string name="cchr_change_invite_confirm">This will remove the current default subscription and nodes. Continue?</string>
-    <string name="cchr_invite_changed">Invite code changed.</string>
+    <string name="cchr_change_invite_confirm">The current subscription will be replaced after the new one is verified. On failure it will be preserved. After replacement, select a node again. Continue?</string>
+    <string name="cchr_invite_changed">Invite code changed. Please select a node.</string>
     <string name="cchr_invite_change_cancelled">Invite code was not changed.</string>
     <string name="cchr_subscription_service_not_configured">Subscription service is not configured yet.</string>
     <string name="cchr_subscription_url_missing">Subscription URL is missing.</string>
+    <string name="cchr_invite_reentry_required">Please use Change invite code to enter your current code once. Older versions did not save it. Your existing nodes are preserved.</string>
+    <string name="cchr_subscription_unusable_preserved">The new subscription is expired or has no traffic remaining. Your existing subscription is preserved.</string>
     <string name="cchr_default_subscription_removed_expired">Default subscription has expired and was removed.</string>
     <string name="cchr_default_subscription_removed_exhausted">Default subscription traffic is exhausted and was removed.</string>
     <string name="cchr_service_disabled_title">Service unavailable</string>

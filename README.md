@@ -4,6 +4,8 @@ CCHR-Box 是基于 NekoBox for Android 的开源 Android 代理客户端，定�
 
 **本仓库不提供代理服务器、公共订阅、邀请码或网络接入服务，也不通过 GitHub Releases 或 Actions Artifact 分发 APK / AAB。** 服务端是独立私有组件，不包含在本仓库中。
 
+版本变更与旧版升级指引见 [更新日志](CHANGELOG.md)。
+
 ## 使用自有配置
 
 默认构建不内置任何订阅服务、公告服务或远程应用控制地址。
@@ -14,6 +16,8 @@ CCHR-Box 是基于 NekoBox for Android 的开源 Android 代理客户端，定�
 - 覆盖安装时保留已有订阅及节点，不清空数据。独立节点也可选择、测速和连接。
 
 ## 自行构建
+
+继续开发或发布新版本前，请查阅 [解耦后的版本开发指南](DEVELOPMENT.md)，了解配置、签名、覆盖升级、接口兼容和验证注意事项。
 
 Android 构建使用 JDK 17 或兼容版本、Android SDK 35、Build Tools 35.0.1；原生核心使用 Go 1.25 和 Android NDK 25.0.8775105。构建工具和依赖版本以仓库脚本为准。
 

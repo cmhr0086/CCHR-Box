@@ -144,7 +144,8 @@ class NodeSelectActivity : ThemedActivity() {
             proxy = item
             itemBinding.nodeName.text = DefaultProxyDisplay.name(
                 item,
-                getString(R.string.cchr_node_label, position + 1)
+                getString(R.string.cchr_node_label, position + 1),
+                nodes,
             )
             val (latency, color) = latencyDisplay(item)
             itemBinding.nodeLatency.text = latency

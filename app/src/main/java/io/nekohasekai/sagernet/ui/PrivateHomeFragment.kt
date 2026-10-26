@@ -15,6 +15,8 @@ import io.nekohasekai.sagernet.cchr.DefaultProxyDisplay
 import io.nekohasekai.sagernet.GroupType
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.cchr.PrivateSubscriptionManager
+import io.nekohasekai.sagernet.cchr.SubscriptionExpiryProgress
+import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.GroupManager
 import io.nekohasekai.sagernet.database.ProxyEntity
 import io.nekohasekai.sagernet.database.ProxyGroup
@@ -70,13 +72,30 @@ class PrivateHomeFragment : ToolbarFragment(R.layout.layout_private_home), Group
             val group = PrivateSubscriptionManager.getDefaultSubscription()
             val proxy = PrivateSubscriptionManager.getSelectedDefaultProxy()
             val proxies = PrivateSubscriptionManager.getDefaultProxies()
+            val expiry = group?.let {
+                val usage = PrivateSubscriptionManager.parseUsageInfo(it.subscription?.subscriptionUserinfo)
+                val key = "cchr.expiryReference.${it.id}"
+                val saved = DataStore.configurationStore.getString(key)
+                SubscriptionExpiryProgress.calculate(
+                    usage.expire, usage.expiryKnown, System.currentTimeMillis() / 1000L, saved,
+                ).also { state ->
+                    if (state.reference != null && state.reference != saved) {
+                        DataStore.configurationStore.putString(key, state.reference)
+                    } else if (state.kind == SubscriptionExpiryProgress.Kind.UNLIMITED && saved != null) {
+                        DataStore.configurationStore.remove(key)
+                    }
+                }
+            } ?: SubscriptionExpiryProgress.State(SubscriptionExpiryProgress.Kind.UNKNOWN)
             onMainDispatcher {
-                bind(group, proxy, proxies)
+                bind(group, proxy, proxies, expiry)
             }
         }
     }
 
-    private fun bind(group: ProxyGroup?, proxy: ProxyEntity?, proxies: List<ProxyEntity>) {
+    private fun bind(
+        group: ProxyGroup?, proxy: ProxyEntity?, proxies: List<ProxyEntity>,
+        expiry: SubscriptionExpiryProgress.State,
+    ) {
         val binding = binding ?: return
         updateButtonState(
             binding.subscriptionRefreshAction,
@@ -93,6 +112,7 @@ class PrivateHomeFragment : ToolbarFragment(R.layout.layout_private_home), Group
             binding.usageProgress.progress = 0
             binding.subscriptionExpire.setText(R.string.cchr_expire_unknown)
             binding.expireProgress.progress = 0
+            binding.expireProgress.isVisible = false
             renderNodeSelector(proxy, proxies)
             if (!PrivateSubscriptionManager.subscriptionEnabled) binding.subscriptionRefreshAction.isEnabled = false
             return
@@ -129,28 +149,35 @@ class PrivateHomeFragment : ToolbarFragment(R.layout.layout_private_home), Group
             binding.usageProgress.setIndicatorColor(usageColor(0))
         }
 
-        val daysRemaining = daysRemaining(usage.expire)
-        when {
-            usage.expire <= 0L -> {
+        binding.expireProgress.isVisible = expiry.kind == SubscriptionExpiryProgress.Kind.ACTIVE ||
+            expiry.kind == SubscriptionExpiryProgress.Kind.EXPIRED
+        when (expiry.kind) {
+            SubscriptionExpiryProgress.Kind.UNKNOWN -> {
                 binding.subscriptionExpire.setText(R.string.cchr_expire_unknown)
                 binding.expireProgress.progress = 0
             }
 
-            daysRemaining <= 0 -> {
+            SubscriptionExpiryProgress.Kind.UNLIMITED -> {
+                binding.subscriptionExpire.setText(R.string.cchr_expire_unlimited)
+                binding.expireProgress.progress = 0
+            }
+
+            SubscriptionExpiryProgress.Kind.EXPIRED -> {
                 binding.subscriptionExpire.setText(R.string.cchr_expired)
                 binding.expireProgress.progress = 0
             }
 
-            else -> {
+            SubscriptionExpiryProgress.Kind.ACTIVE -> {
                 binding.subscriptionExpire.text =
                     resources.getQuantityString(
                         R.plurals.cchr_expire_days_remaining,
-                        daysRemaining,
-                        daysRemaining
+                        expiry.daysRemaining,
+                        expiry.daysRemaining
                     )
-                binding.expireProgress.progress = (daysRemaining.coerceAtMost(30) * 100 / 30)
+                binding.expireProgress.progress = expiry.percentRemaining
             }
         }
+        binding.expireProgress.contentDescription = binding.subscriptionExpire.text
         binding.expireProgress.setIndicatorColor(themeColor(R.attr.colorPrimary))
         binding.expireProgress.trackColor = binding.usageProgress.trackColor
 
@@ -165,7 +192,7 @@ class PrivateHomeFragment : ToolbarFragment(R.layout.layout_private_home), Group
     private fun renderNodeSelector(proxy: ProxyEntity?, proxies: List<ProxyEntity>) {
         val binding = binding ?: return
         binding.nodeSelectorCurrent.text = when {
-            proxy != null -> proxyDisplayName(proxy, 0)
+            proxy != null -> proxyDisplayName(proxy, 0, proxies)
             else -> getString(R.string.cchr_node_unselected)
         }
         val (text, color) = latencyDisplay(proxy)
@@ -193,13 +220,10 @@ class PrivateHomeFragment : ToolbarFragment(R.layout.layout_private_home), Group
         refreshingSubscription = true
         reload()
         runOnDefaultDispatcher {
-            val ok = PrivateSubscriptionManager.refreshDefaultSubscription(activity, showError = false, byUser = true)
+            val ok = PrivateSubscriptionManager.refreshDefaultSubscription(activity, showError = true, byUser = true)
             onMainDispatcher {
                 refreshingSubscription = false
-                activity.snackbar(
-                    if (ok) R.string.cchr_subscription_refresh_success
-                    else R.string.cchr_subscription_update_failed
-                ).show()
+                if (ok) activity.snackbar(R.string.cchr_subscription_refresh_success).show()
                 reload()
                 reloadAnnouncement()
             }
@@ -262,13 +286,6 @@ class PrivateHomeFragment : ToolbarFragment(R.layout.layout_private_home), Group
         button.setText(if (loading) loadingText else normalText)
     }
 
-    private fun daysRemaining(expire: Long): Int {
-        if (expire <= 0L) return 0
-        val seconds = expire - System.currentTimeMillis() / 1000
-        if (seconds <= 0L) return 0
-        return ((seconds + 86399L) / 86400L).toInt().coerceAtLeast(1)
-    }
-
     private fun usageColor(percent: Int): Int {
         return ContextCompat.getColor(
             requireContext(),
@@ -305,8 +322,8 @@ class PrivateHomeFragment : ToolbarFragment(R.layout.layout_private_home), Group
         }
     }
 
-    private fun proxyDisplayName(proxy: ProxyEntity, index: Int): String {
-        return DefaultProxyDisplay.name(proxy, getString(R.string.cchr_node_label, index + 1))
+    private fun proxyDisplayName(proxy: ProxyEntity, index: Int, peers: List<ProxyEntity>): String {
+        return DefaultProxyDisplay.name(proxy, getString(R.string.cchr_node_label, index + 1), peers)
     }
 
     override suspend fun groupAdd(group: ProxyGroup) {

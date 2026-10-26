@@ -513,6 +513,7 @@
     <string name="cchr_usage_used_total">已用 %1$s / 总量 %2$s</string>
     <string name="cchr_usage_used_only">已用 %s</string>
     <string name="cchr_expire_unknown">到期时间未知</string>
+    <string name="cchr_expire_unlimited">无限期</string>
     <string name="cchr_expired">已到期</string>
     <string name="cchr_subscription_nodes">%d 个节点</string>
     <string name="cchr_subscription_updated_at">更新于 %s</string>
@@ -547,11 +548,13 @@
     <string name="cchr_invite_activated">已激活</string>
     <string name="cchr_activate_required">请先输入邀请码完成激活</string>
     <string name="cchr_change_invite">更换邀请码</string>
-    <string name="cchr_change_invite_confirm">这会移除当前默认订阅和节点，是否继续？</string>
-    <string name="cchr_invite_changed">邀请码已更换</string>
+    <string name="cchr_change_invite_confirm">新订阅验证成功后才会替换当前订阅，失败时保留原节点。替换成功后需重新选择节点，是否继续？</string>
+    <string name="cchr_invite_changed">邀请码已更换，请重新选择节点</string>
     <string name="cchr_invite_change_cancelled">未更换邀请码</string>
     <string name="cchr_subscription_service_not_configured">订阅服务暂未配置</string>
     <string name="cchr_subscription_url_missing">订阅链接为空</string>
+    <string name="cchr_invite_reentry_required">旧版本未保存邀请码。请通过“更换邀请码”重新输入一次当前邀请码，现有节点会保留。</string>
+    <string name="cchr_subscription_unusable_preserved">新订阅已过期或流量已用尽，已保留现有订阅。</string>
     <string name="cchr_default_subscription_removed_expired">默认订阅已到期，已自动移除。</string>
     <string name="cchr_default_subscription_removed_exhausted">默认订阅流量已耗尽，已自动移除。</string>
     <string name="cchr_service_disabled_title">服务暂不可用</string>

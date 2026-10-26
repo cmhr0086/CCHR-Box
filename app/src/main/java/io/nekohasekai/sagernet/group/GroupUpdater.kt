@@ -5,6 +5,8 @@ import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.GroupManager
 import io.nekohasekai.sagernet.database.ProxyGroup
 import io.nekohasekai.sagernet.database.SubscriptionBean
+import io.nekohasekai.sagernet.database.SagerDatabase
+import io.nekohasekai.sagernet.cchr.PrivateSubscriptionManager
 import io.nekohasekai.sagernet.fmt.AbstractBean
 import io.nekohasekai.sagernet.fmt.http.HttpBean
 import io.nekohasekai.sagernet.fmt.hysteria.HysteriaBean
@@ -131,30 +133,55 @@ abstract class GroupUpdater {
         }
 
         suspend fun executeUpdate(proxyGroup: ProxyGroup, byUser: Boolean): Boolean {
-            return coroutineScope {
-                if (!updating.add(proxyGroup.id)) cancel()
-                GroupManager.postReload(proxyGroup.id)
-
-                val subscription = proxyGroup.subscription!!
-                val connected = DataStore.serviceState.connected
-                val userInterface = GroupManager.userInterface
-
-                if (byUser && (subscription.link?.startsWith("http://") == true || subscription.updateWhenConnectedOnly) && !connected) {
-                    if (userInterface == null || !userInterface.confirm(app.getString(R.string.update_subscription_warning))) {
-                        finishUpdate(proxyGroup)
-                        cancel()
-                        return@coroutineScope true
-                    }
-                }
-
-                try {
-                    RawUpdater.doUpdate(proxyGroup, subscription, userInterface, byUser)
-                    true
-                } catch (e: Throwable) {
-                    Logs.w(e)
-                    userInterface?.onUpdateFailure(proxyGroup, e.readableMessage)
-                    finishUpdate(proxyGroup)
+            if (PrivateSubscriptionManager.isManagedSubscription(proxyGroup)) {
+                return try {
+                    PrivateSubscriptionManager.updateManagedSubscription(proxyGroup.id, byUser)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    GroupManager.userInterface?.onUpdateFailure(proxyGroup, e.readableMessage)
                     false
+                }
+            }
+            return executeUpdateDirect(proxyGroup, byUser)
+        }
+
+        internal suspend fun executeUpdateDirect(
+            proxyGroup: ProxyGroup, byUser: Boolean, throwOnFailure: Boolean = false,
+        ): Boolean {
+            return coroutineScope {
+                currentCoroutineContext().ensureActive()
+                // Cancelling the scope does not stop synchronous download/database code.
+                // A competing update must return before it can insert the same nodes again.
+                if (!updating.add(proxyGroup.id)) return@coroutineScope false
+                try {
+                    if (SagerDatabase.groupDao.getById(proxyGroup.id) == null) return@coroutineScope false
+                    GroupManager.postReload(proxyGroup.id)
+
+                    val subscription = proxyGroup.subscription!!
+                    val connected = DataStore.serviceState.connected
+                    val userInterface = if (PrivateSubscriptionManager.subscriptionEnabled &&
+                        proxyGroup.name == CCHR_TEMP_SUBSCRIPTION_NAME) null else GroupManager.userInterface
+
+                    if (byUser && (subscription.link?.startsWith("http://") == true || subscription.updateWhenConnectedOnly) && !connected) {
+                        if (userInterface == null || !userInterface.confirm(app.getString(R.string.update_subscription_warning))) {
+                            return@coroutineScope false
+                        }
+                    }
+
+                    try {
+                        RawUpdater.doUpdate(proxyGroup, subscription, userInterface, byUser)
+                        true
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Throwable) {
+                        if (throwOnFailure) throw e
+                        Logs.w(e)
+                        userInterface?.onUpdateFailure(proxyGroup, e.readableMessage)
+                        false
+                    }
+                } finally {
+                    withContext(NonCancellable) { finishUpdate(proxyGroup) }
                 }
             }
         }

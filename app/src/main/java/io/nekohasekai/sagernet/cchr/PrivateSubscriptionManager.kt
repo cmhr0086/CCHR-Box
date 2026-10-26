@@ -8,6 +8,7 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
+import androidx.room.withTransaction
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import io.nekohasekai.sagernet.BuildConfig
 import io.nekohasekai.sagernet.CCHR_APP_CONTROL_ENDPOINT
@@ -18,6 +19,7 @@ import io.nekohasekai.sagernet.CCHR_TEMP_SUBSCRIPTION_NAME
 import io.nekohasekai.sagernet.GroupType
 import io.nekohasekai.sagernet.R
 import io.nekohasekai.sagernet.SagerNet
+import io.nekohasekai.sagernet.bg.SubscriptionUpdater
 import io.nekohasekai.sagernet.bg.proto.UrlTest
 import io.nekohasekai.sagernet.database.DataStore
 import io.nekohasekai.sagernet.database.GroupManager
@@ -31,6 +33,9 @@ import io.nekohasekai.sagernet.ktx.app
 import io.nekohasekai.sagernet.ktx.onIoDispatcher
 import io.nekohasekai.sagernet.ktx.onMainDispatcher
 import io.nekohasekai.sagernet.ktx.readableMessage
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import io.nekohasekai.sagernet.ui.MainActivity
 import org.json.JSONObject
 import java.io.OutputStreamWriter
@@ -38,6 +43,36 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 object PrivateSubscriptionManager {
+
+    private val subscriptionOperations = SubscriptionOperations()
+    private fun inviteKey(groupId: Long) = "cchr.privateSubscriptionInvite.$groupId"
+
+    internal fun isManagedSubscription(group: ProxyGroup): Boolean =
+        subscriptionEnabled && group.type == GroupType.SUBSCRIPTION &&
+            group.name == CCHR_DEFAULT_SUBSCRIPTION_NAME
+
+    internal suspend fun updateManagedSubscription(groupId: Long, byUser: Boolean): Boolean =
+        subscriptionOperations.run {
+            // Reload after acquiring the lock: a replacement may have removed this group.
+            val group = SagerDatabase.groupDao.getById(groupId) ?: return@run false
+            if (!isManagedSubscription(group)) return@run false
+            requireAppAccess()
+            val invite = DataStore.configurationStore.getString(inviteKey(groupId))
+                ?.takeIf { it.isNotBlank() }
+                ?: error(app.getString(R.string.cchr_invite_reentry_required))
+            val previousNodeIds = SagerDatabase.proxyDao.getByGroup(groupId).map { it.id }.toSet()
+            // The new URL is only persisted with the successfully parsed node update.
+            group.subscription!!.link = fetchSubscriptionUrl(invite)
+            val ok = GroupUpdater.executeUpdateDirect(group, byUser, throwOnFailure = true)
+            defaultUpdateFailed = !ok
+            val selectedId = DataStore.selectedProxy
+            if (ok && selectedId in previousNodeIds &&
+                SagerDatabase.proxyDao.getById(selectedId) == null) {
+                DataStore.selectedProxy = 0L
+                if (DataStore.serviceState.started) SagerNet.stopService()
+            }
+            ok
+        }
 
     val subscriptionEnabled: Boolean get() = CCHR_SUBSCRIPTION_ENDPOINT.isNotBlank()
 
@@ -51,6 +86,7 @@ object PrivateSubscriptionManager {
         val download: Long = 0L,
         val total: Long = 0L,
         val expire: Long = 0L,
+        val expiryKnown: Boolean = false,
     ) {
         val used: Long get() = upload + download
         val remaining: Long get() = total - used
@@ -105,6 +141,7 @@ object PrivateSubscriptionManager {
                 ?: SagerDatabase.groupDao.subscriptions().firstOrNull()
         }
         val groups = SagerDatabase.groupDao.subscriptions()
+            .filter { it.name != CCHR_TEMP_SUBSCRIPTION_NAME }
         val group = groups.firstOrNull { it.name == CCHR_DEFAULT_SUBSCRIPTION_NAME }
             ?: groups.firstOrNull()
             ?: return null
@@ -145,28 +182,35 @@ object PrivateSubscriptionManager {
     ): Boolean {
         if (!ensureAppAccess(activity)) return false
         if (!subscriptionEnabled && !byUser) return false
-        val group = getDefaultSubscription() ?: return false
+        val group = getDefaultSubscription() ?: run {
+            if (showError) onMainDispatcher {
+                activity.snackbar(
+                    if (subscriptionEnabled) R.string.cchr_activate_required else R.string.cchr_import_required
+                ).show()
+            }
+            return false
+        }
+        var failureMessage: String? = null
         val ok = try {
             if (subscriptionEnabled) group.name = CCHR_DEFAULT_SUBSCRIPTION_NAME
-            GroupUpdater.executeUpdate(group, false)
+            if (subscriptionEnabled) updateManagedSubscription(group.id, false)
+            else GroupUpdater.executeUpdate(group, false)
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Throwable) {
-            if (showError) {
-                onMainDispatcher {
-                    activity.snackbar(e.readableMessage).show()
-                }
-            }
+            failureMessage = e.readableMessage
             false
         }
         defaultUpdateFailed = !ok
         val updatedGroup = getDefaultSubscription() ?: return false
-        val invalidReason = validateDefaultSubscription(updatedGroup)
+        val invalidReason = if (ok) validateDefaultSubscription(updatedGroup) else null
         if (invalidReason != null) {
             showInvalidDialog(activity, invalidReason)
             return false
         }
         if (!ok && showError) {
             onMainDispatcher {
-                activity.snackbar(R.string.cchr_subscription_update_failed).show()
+                activity.snackbar(failureMessage ?: app.getString(R.string.cchr_subscription_update_failed)).show()
             }
         }
         return ok
@@ -186,50 +230,67 @@ object PrivateSubscriptionManager {
     }
 
     suspend fun activateWithInviteCode(inviteCode: String, replaceExisting: Boolean): Boolean {
-        requireSubscriptionService()
-        requireAppAccess()
-        val subscriptionUrl = fetchSubscriptionUrl(inviteCode)
-        val oldGroups = SagerDatabase.groupDao.subscriptions()
-        if (!replaceExisting && oldGroups.isNotEmpty()) return true
-
-        val group = createSubscriptionGroup(subscriptionUrl, temporary = replaceExisting)
-        val ok = try {
-            updateAndValidateNewSubscription(group)
-        } catch (e: Throwable) {
-            GroupManager.deleteGroup(group.id)
-            throw e
+        return subscriptionOperations.run {
+            requireSubscriptionService()
+            requireAppAccess()
+            val current = getDefaultSubscription()
+            if (!replaceExisting && current != null) return@run true
+            val subscriptionUrl = fetchSubscriptionUrl(inviteCode.trim())
+            val oldGroups = SagerDatabase.groupDao.subscriptions().filter {
+                it.id == current?.id || it.name == CCHR_DEFAULT_SUBSCRIPTION_NAME ||
+                    it.name == CCHR_TEMP_SUBSCRIPTION_NAME
+            }
+            val group = createSubscriptionGroup(subscriptionUrl)
+            var committed = false
+            try {
+                if (!updateAndValidateNewSubscription(group)) return@run false
+                // Keep the invite outside the shared subscription serialization format.
+                DataStore.configurationStore.putString(inviteKey(group.id), inviteCode.trim())
+                withContext(NonCancellable) {
+                    SagerDatabase.instance.withTransaction {
+                        SagerDatabase.proxyDao.deleteByGroup(oldGroups.map { it.id }.toLongArray())
+                        SagerDatabase.groupDao.deleteGroup(oldGroups)
+                        group.name = CCHR_DEFAULT_SUBSCRIPTION_NAME
+                        group.subscription!!.autoUpdate = true
+                        SagerDatabase.groupDao.updateGroup(group)
+                    }
+                    committed = true
+                    DataStore.selectedGroup = group.id
+                    DataStore.selectedProxy = 0L
+                    if (replaceExisting && DataStore.serviceState.started) SagerNet.stopService()
+                    for (old in oldGroups) {
+                        DataStore.configurationStore.remove(inviteKey(old.id))
+                        GroupManager.iterator { groupRemoved(old.id) }
+                    }
+                    GroupManager.postUpdate(group)
+                    SubscriptionUpdater.reconfigureUpdater()
+                }
+                true
+            } finally {
+                if (!committed) withContext(NonCancellable) {
+                    DataStore.configurationStore.remove(inviteKey(group.id))
+                    GroupManager.deleteGroup(group.id)
+                }
+            }
         }
-        if (!ok) {
-            GroupManager.deleteGroup(group.id)
-            return false
-        }
-
-        if (replaceExisting) {
-            GroupManager.deleteGroup(oldGroups.filter { it.id != group.id })
-        }
-        group.name = CCHR_DEFAULT_SUBSCRIPTION_NAME
-        GroupManager.updateGroup(group)
-        if (replaceExisting && DataStore.serviceState.started) {
-            SagerNet.reloadService()
-        }
-        return true
     }
 
-    private suspend fun createSubscriptionGroup(subscriptionUrl: String, temporary: Boolean): ProxyGroup {
+    private suspend fun createSubscriptionGroup(subscriptionUrl: String): ProxyGroup {
         val group = ProxyGroup(
             type = GroupType.SUBSCRIPTION,
-            name = if (temporary) CCHR_TEMP_SUBSCRIPTION_NAME else CCHR_DEFAULT_SUBSCRIPTION_NAME,
+            name = CCHR_TEMP_SUBSCRIPTION_NAME,
             subscription = SubscriptionBean().apply {
                 link = subscriptionUrl
                 deduplication = true
-                autoUpdate = true
+                // Never schedule a background update for an uncommitted candidate.
+                autoUpdate = false
             },
         )
         return GroupManager.createGroup(group)
     }
 
     private suspend fun updateAndValidateNewSubscription(group: ProxyGroup): Boolean {
-        val ok = GroupUpdater.executeUpdate(group, false)
+        val ok = GroupUpdater.executeUpdateDirect(group, false, throwOnFailure = true)
         defaultUpdateFailed = !ok
         if (!ok) return false
         validateDefaultSubscription(group)?.let { return false }
@@ -353,7 +414,7 @@ object PrivateSubscriptionManager {
             return AppAccessException(
                 AppAccessReason.UPDATE_REQUIRED,
                 control.updateMessage.ifBlank { app.getString(R.string.cchr_update_required_message) },
-                control.updateUrl.takeIf(::isHttpsUrl) ?: DEFAULT_UPDATE_URL,
+                resolveAppUpdateUrl(control.updateUrl),
             )
         }
         return null
@@ -440,9 +501,14 @@ object PrivateSubscriptionManager {
         getButton(AlertDialog.BUTTON_POSITIVE)?.translationX = -offset
     }
 
-    private fun isHttpsUrl(value: String): Boolean = runCatching {
-        URL(value).protocol == "https:"
-    }.getOrDefault(false)
+    internal fun resolveAppUpdateUrl(value: String): String {
+        val candidate = value.trim()
+        val valid = runCatching {
+            val url = URL(candidate)
+            url.protocol.equals("https", ignoreCase = true) && url.host.isNotBlank()
+        }.getOrDefault(false)
+        return if (valid) candidate else DEFAULT_UPDATE_URL
+    }
 
     private fun openUpdatePage(activity: Activity, url: String): Boolean {
         val viewIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
@@ -507,8 +573,23 @@ object PrivateSubscriptionManager {
         }
     }
 
+    internal fun requireUsableSubscription(group: ProxyGroup) {
+        if (!subscriptionEnabled || (group.name != CCHR_DEFAULT_SUBSCRIPTION_NAME &&
+                group.name != CCHR_TEMP_SUBSCRIPTION_NAME)) return
+        val usage = parseUsageInfo(group.subscription?.subscriptionUserinfo)
+        if (usage.isExpired || usage.isExhausted) {
+            error(app.getString(R.string.cchr_subscription_unusable_preserved))
+        }
+    }
+
     fun parseUsageInfo(subscriptionUserinfo: String?): UsageInfo {
         if (subscriptionUserinfo.isNullOrBlank()) return UsageInfo()
+
+        val expiryField = "(?:^|;)\\s*expire\\s*=\\s*([^;]*)".toRegex()
+            .find(subscriptionUserinfo)
+        val expiry = expiryField?.groupValues?.get(1)?.trim()?.toLongOrNull()
+        val knownStats = "(?:^|;)\\s*(?:upload|download|total)=[0-9]+".toRegex()
+            .containsMatchIn(subscriptionUserinfo)
 
         fun get(key: String): Long {
             return "$key=([0-9]+)".toRegex().find(subscriptionUserinfo)
@@ -522,7 +603,8 @@ object PrivateSubscriptionManager {
             upload = get("upload"),
             download = get("download"),
             total = get("total"),
-            expire = get("expire"),
+            expire = expiry ?: 0L,
+            expiryKnown = if (expiryField != null) expiry != null && expiry >= -1L else knownStats,
         )
     }
 
@@ -552,6 +634,7 @@ object PrivateSubscriptionManager {
         return onIoDispatcher {
             val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
+                useCaches = false
                 connectTimeout = 15000
                 readTimeout = 15000
                 doOutput = true

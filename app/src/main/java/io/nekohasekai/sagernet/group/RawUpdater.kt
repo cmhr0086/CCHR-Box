@@ -34,9 +34,18 @@ import org.yaml.snakeyaml.Yaml
 import org.yaml.snakeyaml.error.YAMLException
 import java.io.StringReader
 import androidx.core.net.toUri
+import androidx.room.withTransaction
+import io.nekohasekai.sagernet.cchr.PrivateSubscriptionManager
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 @Suppress("EXPERIMENTAL_API_USAGE")
 object RawUpdater : GroupUpdater() {
+
+    private data class Changes(
+        val changed: Int, val added: List<String>, val updated: Map<String, String>,
+        val deleted: List<String>, val duplicate: List<String>,
+    )
 
     @SuppressLint("Recycle")
     override suspend fun doUpdate(
@@ -90,6 +99,9 @@ object RawUpdater : GroupUpdater() {
             }
         }
 
+        if (proxies.isEmpty()) error(app.getString(R.string.no_proxies_found_in_subscription))
+        PrivateSubscriptionManager.requireUsableSubscription(proxyGroup)
+
         val proxiesMap = LinkedHashMap<String, AbstractBean>()
         for (proxy in proxies) {
             var index = 0
@@ -107,7 +119,6 @@ object RawUpdater : GroupUpdater() {
 
         if (subscription.forceResolve) forceResolve(proxies, proxyGroup.id)
 
-        val exists = SagerDatabase.proxyDao.getByGroup(proxyGroup.id)
         val duplicate = ArrayList<String>()
         if (subscription.deduplication) {
             Logs.d("Before deduplication: ${proxies.size}")
@@ -141,88 +152,93 @@ object RawUpdater : GroupUpdater() {
 
         Logs.d("Unique profiles: ${nameMap.size}")
 
-        val toDelete = ArrayList<ProxyEntity>()
-        val toReplace = exists.mapNotNull { entity ->
-            val name = entity.displayName()
-            if (nameMap.contains(name)) name to entity else let {
-                toDelete.add(entity)
-                null
-            }
-        }.toMap()
+        currentCoroutineContext().ensureActive()
+        val changes = SagerDatabase.instance.withTransaction {
+            // A stale worker must never recreate nodes for a deleted/replaced group.
+            checkNotNull(SagerDatabase.groupDao.getById(proxyGroup.id))
+            val exists = SagerDatabase.proxyDao.getByGroup(proxyGroup.id)
+            val reconciliation = reconcileSubscription(
+                exists, nameMap.keys, { it.displayName() }, { it.id == DataStore.selectedProxy }
+            )
+            val toDelete = reconciliation.removed
+            val toReplace = reconciliation.retained
 
-        Logs.d("toDelete profiles: ${toDelete.size}")
-        Logs.d("toReplace profiles: ${toReplace.size}")
+            Logs.d("toDelete profiles: ${toDelete.size}")
+            Logs.d("toReplace profiles: ${toReplace.size}")
 
-        val toUpdate = ArrayList<ProxyEntity>()
-        val added = mutableListOf<String>()
-        val updated = mutableMapOf<String, String>()
-        val deleted = toDelete.map { it.displayName() }
+            val toUpdate = ArrayList<ProxyEntity>()
+            val added = mutableListOf<String>()
+            val updated = mutableMapOf<String, String>()
+            val deleted = toDelete.map { it.displayName() }
 
-        var userOrder = 1L
-        var changed = toDelete.size
-        for ((name, bean) in nameMap.entries) {
-            if (toReplace.contains(name)) {
-                val entity = toReplace[name]!!
-                val existsBean = entity.requireBean()
-                // 更新订阅，保留自定义覆写设置
-                bean.customOutboundJson = existsBean.customOutboundJson
-                bean.customConfigJson = existsBean.customConfigJson
-                when {
-                    existsBean != bean -> {
-                        changed++
-                        entity.putBean(bean)
-                        toUpdate.add(entity)
-                        updated[entity.displayName()] = name
+            var userOrder = 1L
+            var changed = toDelete.size
+            for ((name, bean) in nameMap.entries) {
+                if (toReplace.contains(name)) {
+                    val entity = toReplace[name]!!
+                    val existsBean = entity.requireBean()
+                    // 更新订阅，保留自定义覆写设置
+                    bean.customOutboundJson = existsBean.customOutboundJson
+                    bean.customConfigJson = existsBean.customConfigJson
+                    when {
+                        existsBean != bean -> {
+                            changed++
+                            entity.putBean(bean)
+                            entity.userOrder = userOrder
+                            toUpdate.add(entity)
+                            updated[entity.displayName()] = name
 
-                        Logs.d("Updated profile: $name")
+                            Logs.d("Updated profile: $name")
+                        }
+
+                        entity.userOrder != userOrder -> {
+                            entity.putBean(bean)
+                            toUpdate.add(entity)
+                            entity.userOrder = userOrder
+
+                            Logs.d("Reordered profile: $name")
+                        }
+
+                        else -> {
+                            Logs.d("Ignored profile: $name")
+                        }
                     }
-
-                    entity.userOrder != userOrder -> {
-                        entity.putBean(bean)
-                        toUpdate.add(entity)
-                        entity.userOrder = userOrder
-
-                        Logs.d("Reordered profile: $name")
-                    }
-
-                    else -> {
-                        Logs.d("Ignored profile: $name")
-                    }
+                } else {
+                    changed++
+                    SagerDatabase.proxyDao.addProxy(
+                        ProxyEntity(
+                            groupId = proxyGroup.id, userOrder = userOrder
+                        ).apply {
+                            putBean(bean)
+                        })
+                    added.add(name)
+                    Logs.d("Inserted profile: $name")
                 }
-            } else {
-                changed++
-                SagerDatabase.proxyDao.addProxy(
-                    ProxyEntity(
-                        groupId = proxyGroup.id, userOrder = userOrder
-                    ).apply {
-                        putBean(bean)
-                    })
-                added.add(name)
-                Logs.d("Inserted profile: $name")
+                userOrder++
             }
-            userOrder++
+
+            SagerDatabase.proxyDao.updateProxy(toUpdate).also {
+                Logs.d("Updated profiles: $it")
+            }
+
+            SagerDatabase.proxyDao.deleteProxy(toDelete).also {
+                Logs.d("Deleted profiles: $it")
+            }
+
+            val existCount = SagerDatabase.proxyDao.countByGroup(proxyGroup.id).toInt()
+
+            if (existCount != proxies.size) {
+                Logs.e("Exist profiles: $existCount, new profiles: ${proxies.size}")
+            }
+
+            subscription.lastUpdated = (System.currentTimeMillis() / 1000).toInt()
+            SagerDatabase.groupDao.updateGroup(proxyGroup)
+            Changes(changed, added, updated, deleted, duplicate)
         }
-
-        SagerDatabase.proxyDao.updateProxy(toUpdate).also {
-            Logs.d("Updated profiles: $it")
-        }
-
-        SagerDatabase.proxyDao.deleteProxy(toDelete).also {
-            Logs.d("Deleted profiles: $it")
-        }
-
-        val existCount = SagerDatabase.proxyDao.countByGroup(proxyGroup.id).toInt()
-
-        if (existCount != proxies.size) {
-            Logs.e("Exist profiles: $existCount, new profiles: ${proxies.size}")
-        }
-
-        subscription.lastUpdated = (System.currentTimeMillis() / 1000).toInt()
-        SagerDatabase.groupDao.updateGroup(proxyGroup)
-        finishUpdate(proxyGroup)
 
         userInterface?.onUpdateSuccess(
-            proxyGroup, changed, added, updated, deleted, duplicate, byUser
+            proxyGroup, changes.changed, changes.added, changes.updated,
+            changes.deleted, changes.duplicate, byUser
         )
     }
 

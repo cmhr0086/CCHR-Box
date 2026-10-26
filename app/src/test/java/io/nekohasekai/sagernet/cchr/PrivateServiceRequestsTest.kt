@@ -102,6 +102,16 @@ class PrivateServiceRequestsTest {
         assertTrue(requests.isEmpty())
     }
 
+    @Test fun repeatedLookupUsesTheLatestServerMappingForTheSameInvite() = runBlocking {
+        val endpoint = "https://service.example.invalid/subscription"
+        overrideResponse = """{"subscriptionUrl":"https://config.example.invalid/old"}"""
+        assertEquals("https://config.example.invalid/old", PrivateSubscriptionManager.requestSubscriptionUrl("same-code", endpoint))
+        overrideResponse = """{"subscriptionUrl":"https://config.example.invalid/new"}"""
+        assertEquals("https://config.example.invalid/new", PrivateSubscriptionManager.requestSubscriptionUrl("same-code", endpoint))
+        assertEquals(2, requests.size)
+        assertTrue(requests.all { JSONObject(it.body.toString("UTF-8")).getString("inviteCode") == "same-code" })
+    }
+
     @Test fun serviceErrorAndOptionalServiceFailuresKeepExistingSemantics() = runBlocking {
         responseCode = 403
         overrideResponse = """{"message":"Invalid invitation"}"""
